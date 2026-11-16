@@ -195,7 +195,11 @@ pub fn submit(
         },
     ];
     let queue: &objc2::runtime::ProtocolObject<dyn MTLCommandQueue> = &session.queue.0;
+    let dump = (meta.index == DUMP_FRAME).then(|| std::env::var_os("TETHER_DUMP_FRAME")).flatten();
     let composed = streamer.compositor.compose(queue, eyes, move |slot| {
+        if let Some(path) = dump {
+            dump_luma(&slot, &path);
+        }
         let release = slot.clone();
         encoder.encode(
             &slot.pixel_buffer,
@@ -211,4 +215,17 @@ pub fn submit(
         streamer.needs_keyframe.store(true, Ordering::Release);
     }
     Ok(())
+}
+
+/// With `TETHER_DUMP_FRAME=<path>`, this frame's composed luma is written as a PGM image.
+const DUMP_FRAME: u64 = 90;
+
+fn dump_luma(slot: &tether_stream::compositor::Slot, path: &std::ffi::OsStr) {
+    let Some((w, h, rows)) = slot.luma() else { return };
+    let mut pgm = format!("P5\n{w} {h}\n255\n").into_bytes();
+    pgm.extend_from_slice(&rows);
+    match std::fs::write(path, pgm) {
+        Ok(()) => crate::log!("dumped frame {DUMP_FRAME} luma to {}", path.to_string_lossy()),
+        Err(e) => crate::log!("frame dump failed: {e}"),
+    }
 }

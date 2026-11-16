@@ -7,6 +7,8 @@ use std::sync::Mutex;
 
 use tether_protocol::{Message, StreamDecoder, USB_PORT, encode_framed};
 
+const SILENCE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
+
 pub trait Link: Send + Sync {
     fn send(&self, message: &Message) -> io::Result<()>;
     /// Blocks for the next message; an error means the headset is gone.
@@ -56,6 +58,9 @@ pub struct StreamLink {
 impl StreamLink {
     pub fn new(stream: TcpStream) -> io::Result<Self> {
         stream.set_nodelay(true)?;
+        // A live peer is never silent this long (tracking or clock pongs flow constantly); a
+        // dead one behind `adb reverse` may never close the socket, so silence ends the link.
+        stream.set_read_timeout(Some(SILENCE_TIMEOUT))?;
         Ok(Self {
             writer: Mutex::new((
                 BufWriter::with_capacity(1 << 20, stream.try_clone()?),

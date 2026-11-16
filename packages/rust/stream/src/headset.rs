@@ -28,11 +28,24 @@ pub struct HeadsetState {
     pub keyframe_requested: bool,
     /// Encoded video size the client was last told about.
     pub video_size: Option<(u32, u32)>,
+    /// Tracking is arriving on the current link. Without it the last pose is held.
+    live: bool,
 }
 
 impl HeadsetState {
     pub fn connected(&self) -> bool {
-        self.tracking.is_some()
+        self.live
+    }
+
+    /// Forgets the link but keeps the last pose, so apps hold still instead of snapping to
+    /// the default viewer, and keeps the recenter count monotonic for sessions watching it.
+    fn retire(&mut self) {
+        *self = Self {
+            tracking: self.tracking.take(),
+            profile: self.profile.take(),
+            recenters: self.recenters,
+            ..Self::default()
+        };
     }
 
     pub fn head_at(&self, time_ns: i64) -> Rigid {
@@ -51,7 +64,7 @@ impl HeadsetState {
         self.tracking
             .as_ref()
             .map(|(t, _)| t.controllers[hand])
-            .filter(|c| c.active)
+            .filter(|c| c.active && self.live)
     }
 
     /// Grip and aim poses at `time_ns`, both moved by the grip's velocity.
@@ -70,7 +83,7 @@ impl HeadsetState {
     ) -> Option<Rigid> {
         let (sample, sample_ns) = self.tracking.as_ref()?;
         let (pose, velocity) = f(sample);
-        let dt = (time_ns - sample_ns).clamp(0, MAX_PREDICTION_NS);
+        let dt = if self.live { (time_ns - sample_ns).clamp(0, MAX_PREDICTION_NS) } else { 0 };
         Some(pose::predict(pose, &velocity, dt as f32 * 1e-9))
     }
 }
@@ -100,7 +113,13 @@ impl Headset {
                     let Some(headset) = weak.upgrade() else {
                         return;
                     };
-                    headset.serve(Arc::from(link));
+                    // Each link is served on its own thread so a relaunched headset is
+                    // accepted at once; `serve` retires whichever link it replaces.
+                    let link: Arc<dyn Link> = Arc::from(link);
+                    thread::Builder::new()
+                        .name("tether-link".into())
+                        .spawn(move || headset.serve(link))
+                        .expect("spawning a link thread");
                 }
             })
             .expect("spawning the accept thread");
@@ -143,7 +162,7 @@ impl Headset {
         {
             old.shutdown();
         }
-        *self.state() = HeadsetState::default();
+        self.state().retire();
 
         let pinger = Arc::downgrade(&link);
         thread::Builder::new()
@@ -165,7 +184,7 @@ impl Headset {
         let mut current = self.link.lock().unwrap_or_else(|e| e.into_inner());
         if current.as_ref().is_some_and(|c| Arc::ptr_eq(c, &link)) {
             *current = None;
-            *self.state() = HeadsetState::default();
+            self.state().retire();
         }
     }
 
@@ -185,6 +204,7 @@ impl Headset {
                     now
                 };
                 state.tracking = Some((*tracking, at));
+                state.live = true;
             }
             Message::ClockPing { mac_ns } => {
                 drop(state);
@@ -197,5 +217,37 @@ impl Headset {
             Message::KeyframeRequest => state.keyframe_requested = true,
             Message::ServerHello(_) | Message::VideoFrame(_) | Message::Haptics(_) => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tether_protocol::{Pose, Velocity};
+
+    #[test]
+    fn a_retired_link_holds_the_last_pose() {
+        let mut state = HeadsetState::default();
+        let head = Pose { position: [1.0, 1.5, -2.0], ..Pose::IDENTITY };
+        let mut controller = ControllerState { active: true, ..Default::default() };
+        controller.grip = head;
+        state.tracking = Some((
+            Tracking {
+                head,
+                head_velocity: Velocity { linear: [1.0, 0.0, 0.0], ..Default::default() },
+                controllers: [controller, controller],
+                ..Default::default()
+            },
+            0,
+        ));
+        state.live = true;
+        state.recenters = 3;
+        assert!(state.head_at(50_000_000).translation.x > 1.0, "live links extrapolate");
+
+        state.retire();
+        assert!(!state.connected());
+        assert_eq!(state.head_at(50_000_000), Rigid::from_pose(&head), "held, not extrapolated");
+        assert!(state.controller(0).is_none(), "untracked hands are inactive");
+        assert_eq!(state.recenters, 3, "recenter count survives the link");
     }
 }

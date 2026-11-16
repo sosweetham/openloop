@@ -101,6 +101,34 @@ impl Slot {
     pub fn release(&self) {
         self.busy.store(false, Ordering::Release);
     }
+
+    /// The luma plane as `(width, height, rows)`, for diagnostics. Reads CPU-side, so only
+    /// call it once the GPU has finished with the slot.
+    pub fn luma(&self) -> Option<(usize, usize, Vec<u8>)> {
+        use objc2_core_video::{
+            CVPixelBufferGetBaseAddressOfPlane, CVPixelBufferGetBytesPerRowOfPlane, CVPixelBufferGetHeightOfPlane,
+            CVPixelBufferGetWidthOfPlane, CVPixelBufferLockBaseAddress, CVPixelBufferLockFlags,
+            CVPixelBufferUnlockBaseAddress,
+        };
+        let buffer = &*self.pixel_buffer;
+        // SAFETY: valid pixel buffer; the read-only lock maps it for the duration of the copy.
+        unsafe {
+            if CVPixelBufferLockBaseAddress(buffer, CVPixelBufferLockFlags::ReadOnly) != 0 {
+                return None;
+            }
+            let base = CVPixelBufferGetBaseAddressOfPlane(buffer, 0) as *const u8;
+            let (w, h, stride) = (
+                CVPixelBufferGetWidthOfPlane(buffer, 0),
+                CVPixelBufferGetHeightOfPlane(buffer, 0),
+                CVPixelBufferGetBytesPerRowOfPlane(buffer, 0),
+            );
+            let rows = (!base.is_null()).then(|| {
+                (0..h).flat_map(|y| std::slice::from_raw_parts(base.add(y * stride), w).to_vec()).collect()
+            });
+            CVPixelBufferUnlockBaseAddress(buffer, CVPixelBufferLockFlags::ReadOnly);
+            rows.map(|r| (w, h, r))
+        }
+    }
 }
 
 pub struct Compositor {

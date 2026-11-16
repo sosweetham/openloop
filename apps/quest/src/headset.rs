@@ -47,7 +47,10 @@ pub struct Headset {
     eyes: Vec<Eye>,
     input: Input,
     view_space: xr::Space,
-    stage: xr::Space,
+    /// The tracking space every pose on the wire is in: floor at y = 0.
+    space: xr::Space,
+    _boundary: Option<xr::Space>,
+    head_tracked: bool,
     frame_stream: xr::FrameStream<xr::OpenGlEs>,
     frame_waiter: xr::FrameWaiter,
     session: xr::Session<xr::OpenGlEs>,
@@ -60,6 +63,7 @@ pub struct Headset {
     pending: HashMap<u64, [View; 2]>,
     /// Render views of the frame in the video texture.
     shown: Option<[View; 2]>,
+    stats: Stats,
     // Declared last so it is dropped after the session that uses it.
     _egl: Egl,
 }
@@ -112,10 +116,15 @@ fn velocity(v: &xr::SpaceVelocity) -> Velocity {
 }
 
 impl Headset {
-    pub fn new() -> Result<Self, Box<dyn Error>> {
+    /// `activity` is the Activity's JNI object. It must be the Activity, not the Application
+    /// (which is what `ndk_context` holds): Meta's runtime only fetches the launch ID and watches
+    /// the activity lifecycle for an Activity, and without that the shell never ends its launch
+    /// transition or binds the session to the activity's window.
+    pub fn new(activity: *mut std::ffi::c_void) -> Result<Self, Box<dyn Error>> {
         let context = ndk_context::android_context();
-        // SAFETY: android-activity publishes the process JavaVM and this activity.
-        let platform = unsafe { xr::AndroidPlatformInfo::new(context.vm(), context.context()) };
+        // SAFETY: android-activity publishes the process JavaVM and keeps a global reference to
+        // the Activity alive while the app runs.
+        let platform = unsafe { xr::AndroidPlatformInfo::new(context.vm(), activity) };
         // SAFETY: the APK ships the Khronos loader built from the pinned SDK.
         let entry = unsafe { xr::Entry::load(&platform) }?;
         let available = entry.enumerate_extensions()?;
@@ -125,14 +134,20 @@ impl Headset {
         extensions.khr_opengl_es_enable = true;
         extensions.fb_display_refresh_rate = available.fb_display_refresh_rate;
         extensions.khr_convert_timespec_time = available.khr_convert_timespec_time;
-        let app = xr::ApplicationInfo {
+        // OpenXR 1.1 makes LOCAL_FLOOR core; older runtimes get 1.0. The patch must be the
+        // headers' own: Meta's runtime treats a low patch as a legacy app and switches on
+        // compatibility behaviour, including boundaryless passthrough over the app.
+        let patch = xr::CURRENT_API_VERSION.patch();
+        let app = |minor| xr::ApplicationInfo {
             application_name: "Tether",
             application_version: 1,
             engine_name: "Tether",
             engine_version: 1,
-            api_version: xr::Version::new(1, 0, 0),
+            api_version: xr::Version::new(1, minor, patch),
         };
-        let instance = entry.create_instance(&app, &extensions, &[], &platform)?;
+        let instance = entry
+            .create_instance(&app(1), &extensions, &[], &platform)
+            .or_else(|_| entry.create_instance(&app(0), &extensions, &[], &platform))?;
         let system = instance.system(xr::FormFactor::HEAD_MOUNTED_DISPLAY)?;
         let system_name = instance.system_properties(system)?.system_name;
         log::info!("OpenXR system: {system_name}");
@@ -152,8 +167,22 @@ impl Headset {
             )
         }?;
 
-        let stage =
-            session.create_reference_space(xr::ReferenceSpaceType::STAGE, xr::Posef::IDENTITY)?;
+        // STAGE needs a boundary and cannot be located without one; LOCAL_FLOOR always can.
+        let available_spaces = session.enumerate_reference_spaces()?;
+        let space_type = [xr::ReferenceSpaceType::LOCAL_FLOOR, xr::ReferenceSpaceType::LOCAL]
+            .into_iter()
+            .find(|t| available_spaces.contains(t))
+            .unwrap_or(xr::ReferenceSpaceType::LOCAL);
+        log::info!("tracking space {space_type:?}");
+        let space = session.create_reference_space(space_type, xr::Posef::IDENTITY)?;
+        // Holding a STAGE space and asking for its bounds is how an app tells Horizon OS it
+        // needs a boundary; without that the OS runs it boundaryless, with passthrough over it.
+        let boundary = session.create_reference_space(xr::ReferenceSpaceType::STAGE, xr::Posef::IDENTITY).ok();
+        match session.reference_space_bounds_rect(xr::ReferenceSpaceType::STAGE) {
+            Ok(Some(b)) => log::info!("boundary {:.2} x {:.2} m", b.width, b.height),
+            Ok(None) => log::info!("no boundary bounds yet"),
+            Err(e) => log::warn!("boundary query: {e}"),
+        }
         let view_space =
             session.create_reference_space(xr::ReferenceSpaceType::VIEW, xr::Posef::IDENTITY)?;
         let formats = session.enumerate_swapchain_formats()?;
@@ -221,7 +250,9 @@ impl Headset {
             eyes,
             input,
             view_space,
-            stage,
+            space,
+            _boundary: boundary,
+            head_tracked: false,
             frame_stream,
             frame_waiter,
             session,
@@ -232,6 +263,7 @@ impl Headset {
             decoder: None,
             pending: HashMap::new(),
             shown: None,
+            stats: Stats::default(),
             _egl: egl,
         })
     }
@@ -262,7 +294,10 @@ impl Headset {
                     }
                 }
                 xr::Event::ReferenceSpaceChangePending(e)
-                    if e.reference_space_type() == xr::ReferenceSpaceType::LOCAL =>
+                    if matches!(
+                        e.reference_space_type(),
+                        xr::ReferenceSpaceType::LOCAL | xr::ReferenceSpaceType::LOCAL_FLOOR
+                    ) =>
                 {
                     log::info!("system recenter");
                     self.net.send(&Message::Recenter);
@@ -292,6 +327,7 @@ impl Headset {
                         .ok();
                 }
                 Event::Message(Message::VideoFrame(frame)) => {
+                    self.stats.received += 1;
                     if let Some(decoder) = &self.decoder {
                         self.pending.insert(frame.frame_index, frame.views);
                         self.pending.retain(|&i, _| i + 240 > frame.frame_index);
@@ -319,7 +355,13 @@ impl Headset {
             return;
         };
         match self.video.bind(&self.renderer.gl, image) {
-            Ok(()) => self.shown = Some(views),
+            Ok(()) => {
+                if self.shown.is_none() {
+                    log::info!("first video frame shown (#{index})");
+                }
+                self.shown = Some(views);
+                self.stats.shown += 1;
+            }
             Err(e) => log::warn!("video frame: {e}"),
         }
     }
@@ -340,20 +382,29 @@ impl Headset {
         let views: [View; 2] = match self.shown {
             Some(views) => views,
             None => {
-                let (_, located) = self.session.locate_views(VIEW_TYPE, time, &self.stage)?;
+                let (_, located) = self.session.locate_views(VIEW_TYPE, time, &self.space)?;
                 [0, 1].map(|i| View {
                     pose: pose(located[i].pose),
                     fov: fov(located[i].fov),
                 })
             }
         };
+        // How far the left eye we submit is from where the left eye actually is.
+        let pose_error = if self.shown.is_some() && self.stats.due() {
+            let (_, now) = self.session.locate_views(VIEW_TYPE, time, &self.space)?;
+            Some(pose_distance(&views[0].pose, &pose(now[0].pose)))
+        } else {
+            None
+        };
         for (index, eye) in self.eyes.iter_mut().enumerate() {
             let image = eye.swapchain.acquire_image()?;
             eye.swapchain.wait_image(xr::Duration::INFINITE)?;
             let target = eye.images[image as usize];
             if self.shown.is_some() {
-                self.renderer
-                    .eye(target, eye.width, eye.height, self.video.texture, index);
+                let probe = index == 0 && self.stats.due();
+                if let Some(pixel) = self.renderer.eye(target, eye.width, eye.height, self.video.texture, index, probe) {
+                    self.stats.report(pixel, pose_error);
+                }
             } else {
                 self.renderer.placeholder(target, eye.width, eye.height);
             }
@@ -381,7 +432,7 @@ impl Headset {
             })
             .collect();
         let layer = xr::CompositionLayerProjection::new()
-            .space(&self.stage)
+            .space(&self.space)
             .views(&projection);
         self.frame_stream
             .end(time, xr::EnvironmentBlendMode::OPAQUE, &[&layer])?;
@@ -389,11 +440,16 @@ impl Headset {
     }
 
     fn send_tracking(&mut self, time: xr::Time) -> Result<(), xr::sys::Result> {
-        let (head, head_velocity) = self.view_space.relate(&self.stage, time)?;
+        let (head, head_velocity) = self.view_space.relate(&self.space, time)?;
+        let tracked = head.location_flags.contains(xr::SpaceLocationFlags::POSITION_TRACKED);
+        if tracked != self.head_tracked {
+            log::info!("head tracking {}", if tracked { "acquired" } else { "lost" });
+            self.head_tracked = tracked;
+        }
         let (_, eyes) = self
             .session
             .locate_views(VIEW_TYPE, time, &self.view_space)?;
-        let controllers = self.input.sample(&self.session, &self.stage, time)?;
+        let controllers = self.input.sample(&self.session, &self.space, time)?;
         let tracking = Tracking {
             sample_time_ns: self.to_monotonic(time),
             head: pose(head.pose),
@@ -510,7 +566,7 @@ impl Input {
     fn sample(
         &self,
         session: &xr::Session<xr::OpenGlEs>,
-        stage: &xr::Space,
+        space: &xr::Space,
         time: xr::Time,
     ) -> Result<[ControllerState; 2], xr::sys::Result> {
         session.sync_actions(&[xr::ActiveActionSet::new(&self.set)])?;
@@ -520,8 +576,8 @@ impl Input {
             if !self.grip.is_active(session, path)? {
                 continue;
             }
-            let (grip, grip_velocity) = self.grip_spaces[hand].relate(stage, time)?;
-            let aim = self.aim_spaces[hand].locate(stage, time)?;
+            let (grip, grip_velocity) = self.grip_spaces[hand].relate(space, time)?;
+            let aim = self.aim_spaces[hand].locate(space, time)?;
             let tracked = grip
                 .location_flags
                 .contains(xr::SpaceLocationFlags::POSITION_VALID);
@@ -569,4 +625,39 @@ impl Input {
             log::warn!("haptics: {e}");
         }
     }
+}
+
+/// Once-a-second client diagnostics: frames received and shown, and what the left eye's
+/// centre pixel actually is after drawing.
+#[derive(Default)]
+struct Stats {
+    received: u64,
+    shown: u64,
+    last: Option<std::time::Instant>,
+}
+
+impl Stats {
+    fn due(&self) -> bool {
+        self.last.is_none_or(|t| t.elapsed() >= std::time::Duration::from_secs(1))
+    }
+
+    fn report(&mut self, pixel: [u8; 4], pose_error: Option<(f32, f32)>) {
+        let (cm, degrees) = pose_error.unwrap_or((f32::NAN, f32::NAN));
+        log::info!(
+            "video: {} received, {} shown, left-eye centre rgba {:?}, submitted pose off by {cm:.1} cm / {degrees:.1} deg",
+            self.received,
+            self.shown,
+            pixel
+        );
+        self.received = 0;
+        self.shown = 0;
+        self.last = Some(std::time::Instant::now());
+    }
+}
+
+/// Distance in centimetres and angle in degrees between two poses.
+fn pose_distance(a: &Pose, b: &Pose) -> (f32, f32) {
+    let d: f32 = a.position.iter().zip(&b.position).map(|(x, y)| (x - y) * (x - y)).sum::<f32>().sqrt();
+    let dot: f32 = a.orientation.iter().zip(&b.orientation).map(|(x, y)| x * y).sum::<f32>().abs().min(1.0);
+    (d * 100.0, 2.0 * dot.acos().to_degrees())
 }

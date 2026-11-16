@@ -77,22 +77,24 @@ impl Renderer {
         }
     }
 
-    /// Shown while there is no video.
+    /// Shown while there is no video: unmistakably not the system's loading void.
     pub fn placeholder(&self, target: u32, width: u32, height: u32) {
         let gl = &self.gl;
         // SAFETY: `target` is a live swapchain texture name; the context is current.
         unsafe {
             self.bind_target(target);
             gl.viewport(0, 0, width as i32, height as i32);
-            gl.clear_color(0.06, 0.08, 0.11, 1.0);
+            gl.clear_color(0.45, 0.05, 0.4, 1.0);
             gl.clear(glow::COLOR_BUFFER_BIT);
             gl.bind_framebuffer(glow::FRAMEBUFFER, None);
             gl.flush();
         }
     }
 
-    /// Draws one eye's half of the side-by-side video into `target`.
-    pub fn eye(&self, target: u32, width: u32, height: u32, video: glow::Texture, eye: usize) {
+    /// Draws one eye's half of the side-by-side video into `target`. With `probe`, returns the
+    /// RGBA of the centre pixel as drawn, for diagnostics; that read stalls the GPU, so use it
+    /// sparingly.
+    pub fn eye(&self, target: u32, width: u32, height: u32, video: glow::Texture, eye: usize, probe: bool) -> Option<[u8; 4]> {
         let gl = &self.gl;
         // SAFETY: live swapchain texture and video texture; the context is current.
         unsafe {
@@ -105,8 +107,21 @@ impl Renderer {
             gl.uniform_2_f32(self.offset.as_ref(), eye as f32 * 0.5, 0.0);
             gl.uniform_2_f32(self.scale.as_ref(), 0.5, 1.0);
             gl.draw_arrays(glow::TRIANGLES, 0, 3);
+            let mut pixel = [0u8; 4];
+            if probe {
+                gl.read_pixels(
+                    width as i32 / 2,
+                    height as i32 / 2,
+                    1,
+                    1,
+                    glow::RGBA,
+                    glow::UNSIGNED_BYTE,
+                    glow::PixelPackData::Slice(Some(&mut pixel)),
+                );
+            }
             gl.bind_framebuffer(glow::FRAMEBUFFER, None);
             gl.flush();
+            probe.then_some(pixel)
         }
     }
 

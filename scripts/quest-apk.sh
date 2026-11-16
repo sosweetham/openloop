@@ -24,8 +24,12 @@ rm -rf "$stage"
 mkdir -p "$stage/lib/arm64-v8a"
 cp "$root/target/aarch64-linux-android/release/libtether_quest.so" "$loader" "$stage/lib/arm64-v8a/"
 
+# The activity class Horizon OS requires by name; see scripts/quest-activity-class.py.
+python3 -I "$root/scripts/quest-activity-class.py" "$stage/classes" >/dev/null
+"$build_tools/d8" --min-api 29 --lib "$android_jar" --output "$stage" "$stage/classes/com/oculus/NativeActivity.class"
+
 "$build_tools/aapt2" link -o "$stage/unaligned.apk" --manifest "$root/apps/quest/AndroidManifest.xml" -I "$android_jar"
-(cd "$stage" && zip -qr unaligned.apk lib)
+(cd "$stage" && zip -qr unaligned.apk lib classes.dex)
 "$build_tools/zipalign" -f -p 4 "$stage/unaligned.apk" "$stage/aligned.apk"
 "$build_tools/apksigner" sign --ks "$HOME/.android/debug.keystore" --ks-pass pass:android \
   --out "$root/build/tether-quest.apk" "$stage/aligned.apk"
