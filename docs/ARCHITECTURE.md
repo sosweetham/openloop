@@ -65,6 +65,23 @@ One session protocol with prioritized channels runs over either link:
 - **Wi-Fi:** UDP with FEC and selective retransmit, adaptive bitrate, Bonjour
   discovery.
 
+## Headsets
+
+Quest 3 is the only target today, but **the Mac side never assumes a headset.** Everything
+headset-specific lives in its client and in the device profile the client sends on connect:
+displays (per-eye resolution, FOV, refresh rates), decodable codecs and limits, interaction
+profiles, and features (hand tracking, passthrough, boundary). `tetherd` configures itself from
+that profile, so another Android OpenXR headset is a profile plus quirks, and Vision Pro is a new
+client with no Mac-side change.
+
+## Quest client
+
+Pure Rust plus an `AndroidManifest.xml`: `NativeActivity` via `android-activity`, OpenXR through
+the Khronos Android loader, `AMediaCodec` for decode, Vulkan for presentation and the launcher
+panel (an OpenXR quad layer). The APK is packaged with the SDK command-line tools, without Gradle.
+The few Android features that are Java-only (USB accessory, multicast lock, system keyboard) are
+reached through JNI from Rust; there are no Java or Kotlin sources.
+
 ## Graphics API
 
 Apps bind with `XR_KHR_metal_enable` (ratified in OpenXR 1.1.40). Vulkan apps via

@@ -4,9 +4,13 @@
 mod dispatch;
 mod extensions;
 mod ffi;
+mod generated;
 mod instance;
 mod negotiate;
+mod strings;
 mod system;
+#[cfg(test)]
+mod testing;
 mod version;
 
 pub use negotiate::xrNegotiateLoaderRuntimeInterface;

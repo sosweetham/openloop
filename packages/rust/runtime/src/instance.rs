@@ -6,16 +6,26 @@ use tether_openxr_abi::{
     XrInstance, XrInstanceCreateInfo, XrInstanceProperties, XrResult, XrStructureType, XrVersion,
 };
 
+use crate::generated::Requirement;
 use crate::{extensions, ffi, version};
 
-#[expect(
-    dead_code,
-    reason = "read by sessions and extension-gated dispatch (R1)"
-)]
 pub struct Instance {
+    #[expect(dead_code, reason = "reported in runtime status (R1)")]
     pub app_name: String,
     pub api_version: XrVersion,
-    pub extensions: Vec<&'static extensions::Extension>,
+    /// Indices into `generated::EXTENSIONS`.
+    pub extensions: Vec<usize>,
+}
+
+impl Instance {
+    /// Whether a function with this requirement may be handed out for this instance.
+    pub fn allows(&self, requirement: Requirement) -> bool {
+        match requirement {
+            Requirement::Global => true,
+            Requirement::Core { minor } => version::minor(self.api_version) >= minor,
+            Requirement::Extension(index) => self.extensions.contains(&index),
+        }
+    }
 }
 
 /// Live instance handles. A handle is the address of its boxed `Instance`.
@@ -26,7 +36,7 @@ pub fn is_live(handle: XrInstance) -> bool {
         .is_ok_and(|live| live.contains(&(handle as usize)))
 }
 
-fn get<'a>(handle: XrInstance) -> Option<&'a Instance> {
+pub fn get<'a>(handle: XrInstance) -> Option<&'a Instance> {
     // SAFETY: a live handle is a leaked `Box<Instance>` until xrDestroyInstance.
     is_live(handle).then(|| unsafe { &*(handle as *const Instance) })
 }

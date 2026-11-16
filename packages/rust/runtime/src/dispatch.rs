@@ -1,55 +1,26 @@
 use std::ffi::{CStr, c_char};
 
-use tether_openxr_abi::{
-    PFN_xrCreateInstance, PFN_xrDestroyInstance, PFN_xrEnumerateInstanceExtensionProperties,
-    PFN_xrGetInstanceProcAddr, PFN_xrGetInstanceProperties, PFN_xrGetSystem, PFN_xrVoidFunction,
-    XrInstance, XrResult,
+use tether_openxr_abi::{PFN_xrVoidFunction, XrInstance, XrResult};
+
+use crate::generated::{Entries, Requirement, lookup};
+use crate::{extensions, ffi, instance, strings, system};
+
+/// Every entry point the runtime hands out. Fields are typed by the spec's PFN aliases, so an
+/// implementation with a drifted signature fails to compile; anything not set here is a
+/// generated stub returning `XR_ERROR_FUNCTION_UNSUPPORTED`.
+static ENTRIES: Entries = {
+    let mut e = Entries::STUBS;
+    e.xrGetInstanceProcAddr = Some(xr_get_instance_proc_addr);
+    e.xrEnumerateInstanceExtensionProperties =
+        Some(extensions::xr_enumerate_instance_extension_properties);
+    e.xrCreateInstance = Some(instance::xr_create_instance);
+    e.xrDestroyInstance = Some(instance::xr_destroy_instance);
+    e.xrGetInstanceProperties = Some(instance::xr_get_instance_properties);
+    e.xrResultToString = Some(strings::xr_result_to_string);
+    e.xrStructureTypeToString = Some(strings::xr_structure_type_to_string);
+    e.xrGetSystem = Some(system::xr_get_system);
+    e
 };
-
-use crate::{extensions, ffi, instance, system};
-
-// The PFN types are the spec's signatures; assigning to them makes a drifted
-// signature a compile error rather than a crash in the host app.
-const GET_INSTANCE_PROC_ADDR: PFN_xrGetInstanceProcAddr = Some(xr_get_instance_proc_addr);
-const ENUMERATE_INSTANCE_EXTENSION_PROPERTIES: PFN_xrEnumerateInstanceExtensionProperties =
-    Some(extensions::xr_enumerate_instance_extension_properties);
-const CREATE_INSTANCE: PFN_xrCreateInstance = Some(instance::xr_create_instance);
-const DESTROY_INSTANCE: PFN_xrDestroyInstance = Some(instance::xr_destroy_instance);
-const GET_INSTANCE_PROPERTIES: PFN_xrGetInstanceProperties =
-    Some(instance::xr_get_instance_properties);
-const GET_SYSTEM: PFN_xrGetSystem = Some(system::xr_get_system);
-
-macro_rules! void_fn {
-    ($pfn:expr) => {
-        // SAFETY: function pointers share one representation; the loader casts
-        // back to the PFN type matching the name it asked for.
-        $pfn.map(|f| unsafe {
-            std::mem::transmute::<*const (), unsafe extern "C" fn()>(f as *const ())
-        })
-    };
-}
-
-/// Functions callable before an instance exists (spec §3.2,
-/// VUID-xrGetInstanceProcAddr-instance-parameter).
-fn global(name: &[u8]) -> PFN_xrVoidFunction {
-    match name {
-        b"xrEnumerateInstanceExtensionProperties" => {
-            void_fn!(ENUMERATE_INSTANCE_EXTENSION_PROPERTIES)
-        }
-        b"xrCreateInstance" => void_fn!(CREATE_INSTANCE),
-        _ => None,
-    }
-}
-
-fn per_instance(name: &[u8]) -> PFN_xrVoidFunction {
-    match name {
-        b"xrGetInstanceProcAddr" => void_fn!(GET_INSTANCE_PROC_ADDR),
-        b"xrDestroyInstance" => void_fn!(DESTROY_INSTANCE),
-        b"xrGetInstanceProperties" => void_fn!(GET_INSTANCE_PROPERTIES),
-        b"xrGetSystem" => void_fn!(GET_SYSTEM),
-        _ => global(name),
-    }
-}
 
 pub unsafe extern "C" fn xr_get_instance_proc_addr(
     handle: XrInstance,
@@ -62,21 +33,80 @@ pub unsafe extern "C" fn xr_get_instance_proc_addr(
         }
         // SAFETY: `name` is a NUL-terminated string per the spec.
         let name = unsafe { CStr::from_ptr(name) }.to_bytes();
-        let found = if handle.is_null() {
-            global(name)
-        } else if instance::is_live(handle) {
-            per_instance(name)
-        } else {
-            // SAFETY: checked non-null above.
-            unsafe { *function = None };
-            return XrResult::XR_ERROR_HANDLE_INVALID;
+        let (pfn, result) = match resolve(handle, name) {
+            Ok(pfn) => (pfn, XrResult::XR_SUCCESS),
+            Err(e) => (None, e),
         };
         // SAFETY: checked non-null above.
-        unsafe { *function = found };
-        if found.is_some() {
-            XrResult::XR_SUCCESS
-        } else {
-            XrResult::XR_ERROR_FUNCTION_UNSUPPORTED
-        }
+        unsafe { *function = pfn };
+        result
     })
+}
+
+fn resolve(handle: XrInstance, name: &[u8]) -> Result<PFN_xrVoidFunction, XrResult> {
+    let found = lookup(&ENTRIES, name);
+    if handle.is_null() {
+        // VUID-xrGetInstanceProcAddr-instance-parameter: only global functions without an instance.
+        return match found {
+            Some((pfn, Requirement::Global)) => Ok(pfn),
+            Some(_) => Err(XrResult::XR_ERROR_HANDLE_INVALID),
+            None => Err(XrResult::XR_ERROR_FUNCTION_UNSUPPORTED),
+        };
+    }
+    let instance = instance::get(handle).ok_or(XrResult::XR_ERROR_HANDLE_INVALID)?;
+    match found {
+        Some((pfn, requirement)) if instance.allows(requirement) => Ok(pfn),
+        _ => Err(XrResult::XR_ERROR_FUNCTION_UNSUPPORTED),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testing::create_instance;
+    use tether_openxr_abi::XR_KHR_METAL_ENABLE_EXTENSION_NAME;
+
+    #[test]
+    fn global_functions_resolve_without_an_instance() {
+        assert!(
+            resolve(std::ptr::null_mut(), b"xrCreateInstance")
+                .unwrap()
+                .is_some()
+        );
+        assert_eq!(
+            resolve(std::ptr::null_mut(), b"xrGetSystem"),
+            Err(XrResult::XR_ERROR_HANDLE_INVALID)
+        );
+        assert_eq!(
+            resolve(std::ptr::null_mut(), b"xrNotAFunction"),
+            Err(XrResult::XR_ERROR_FUNCTION_UNSUPPORTED)
+        );
+    }
+
+    #[test]
+    fn every_core_function_resolves_for_an_instance() {
+        let instance = create_instance(&[]);
+        for name in [
+            b"xrCreateSession".as_slice(),
+            b"xrWaitFrame",
+            b"xrLocateSpaces",
+        ] {
+            assert!(
+                resolve(instance, name).unwrap().is_some(),
+                "{}",
+                String::from_utf8_lossy(name)
+            );
+        }
+    }
+
+    #[test]
+    fn extension_functions_need_the_extension_enabled() {
+        let name = b"xrGetMetalGraphicsRequirementsKHR";
+        assert_eq!(
+            resolve(create_instance(&[]), name),
+            Err(XrResult::XR_ERROR_FUNCTION_UNSUPPORTED)
+        );
+        let metal = CStr::from_bytes_with_nul(XR_KHR_METAL_ENABLE_EXTENSION_NAME).unwrap();
+        assert!(resolve(create_instance(&[metal]), name).unwrap().is_some());
+    }
 }
