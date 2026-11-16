@@ -9,6 +9,8 @@ func _ready() -> void:
 		# The headset paces frames; the desktop window's vsync would halve the rate.
 		DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_DISABLED)
 		get_viewport().use_xr = true
+		# STAGE never moves on a system recenter, so the game re-centres itself.
+		xr.pose_recentered.connect(func(): XRServer.center_on_hmd(XRServer.RESET_BUT_KEEP_TILT, true))
 		print("Tether hello: XR running")
 	else:
 		push_error("Tether hello: OpenXR did not initialize")

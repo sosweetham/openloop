@@ -31,6 +31,12 @@ link, and the design leaves room for several apps and system UI. Swapchain image
 IOSurface-backed `MTLTexture`s shared between the app and `tetherd` with no copies,
 ordered by `MTLSharedEvent`s.
 
+**On the Mac, Tether is background software and never takes a Dock slot.** `tetherd` is a
+per-user launchd agent that starts at login and runs whether or not any UI is open. The only
+visible surface is a menu-bar item (SwiftUI `MenuBarExtra`, `LSUIElement = YES`) showing link
+state, the running app and latency; settings open as a window from that menu and closing it
+leaves everything running.
+
 **The headset does lens distortion and reprojection.** Tether composites layers,
 encodes and tags every frame with its render pose; the Quest's own compositor does
 the rest.
