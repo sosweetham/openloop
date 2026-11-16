@@ -27,4 +27,20 @@ cat >"$manifest" <<EOF
 }
 EOF
 
-XR_RUNTIME_JSON="$manifest" exec "$@"
+# The headset reaches the runtime through `adb reverse` (tether_protocol::USB_PORT), which
+# Android drops whenever USB or adb resets, so it is re-established for as long as the app runs.
+adb="${ANDROID_HOME:-$HOME/Library/Android/sdk}/platform-tools/adb"
+port=47800
+if [[ -x "$adb" ]]; then
+  (
+    while true; do
+      "$adb" reverse --list 2>/dev/null | grep -q "tcp:$port tcp:$port" ||
+        "$adb" reverse "tcp:$port" "tcp:$port" >/dev/null 2>&1 || true
+      sleep 2
+    done
+  ) &
+  tunnel=$!
+  trap 'kill "$tunnel" 2>/dev/null' EXIT
+fi
+
+XR_RUNTIME_JSON="$manifest" "$@"
