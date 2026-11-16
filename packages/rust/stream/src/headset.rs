@@ -30,11 +30,19 @@ pub struct HeadsetState {
     pub video_size: Option<(u32, u32)>,
     /// Tracking is arriving on the current link. Without it the last pose is held.
     live: bool,
+    /// Tether's menu holds input focus on the headset. Cleared with the link, so a lost headset
+    /// never leaves an app unfocused.
+    focus_lost: bool,
 }
 
 impl HeadsetState {
     pub fn connected(&self) -> bool {
         self.live
+    }
+
+    /// Whether the app should have input focus.
+    pub fn app_focused(&self) -> bool {
+        !self.focus_lost
     }
 
     /// Forgets the link but keeps the last pose, so apps hold still instead of snapping to
@@ -221,6 +229,7 @@ impl Headset {
             }
             Message::Recenter => state.recenters += 1,
             Message::KeyframeRequest => state.keyframe_requested = true,
+            Message::InputFocus { focused } => state.focus_lost = !focused,
             Message::ServerHello(_) | Message::VideoFrame(_) | Message::Haptics(_) => {}
         }
     }
@@ -274,6 +283,7 @@ mod tests {
         ));
         state.live = true;
         state.recenters = 3;
+        state.focus_lost = true;
         assert!(
             state.head_at(50_000_000).translation.x > 1.0,
             "live links extrapolate"
@@ -291,6 +301,7 @@ mod tests {
             "untracked hands are inactive"
         );
         assert_eq!(state.recenters, 3, "recenter count survives the link");
+        assert!(state.app_focused(), "a lost headset hands focus back to the app");
     }
 
     #[test]

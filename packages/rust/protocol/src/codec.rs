@@ -21,6 +21,7 @@ mod kind {
     pub const RECENTER: u8 = 7;
     pub const HAPTICS: u8 = 8;
     pub const KEYFRAME_REQUEST: u8 = 9;
+    pub const INPUT_FOCUS: u8 = 10;
 }
 
 /// Appends `message` as `[kind][payload]`, the unit a datagram link would send.
@@ -81,6 +82,10 @@ pub fn encode(message: &Message, out: &mut Vec<u8>) {
             w.f32(h.frequency);
         }
         Message::KeyframeRequest => w.u8(kind::KEYFRAME_REQUEST),
+        Message::InputFocus { focused } => {
+            w.u8(kind::INPUT_FOCUS);
+            w.bool(*focused);
+        }
     }
 }
 
@@ -154,6 +159,7 @@ pub fn decode(bytes: &[u8]) -> Result<Message, DecodeError> {
             frequency: r.f32()?,
         }),
         kind::KEYFRAME_REQUEST => Message::KeyframeRequest,
+        kind::INPUT_FOCUS => Message::InputFocus { focused: r.bool()? },
         other => return Err(DecodeError::UnknownKind(other)),
     })
 }
@@ -403,6 +409,7 @@ mod tests {
                 frequency: 0.0,
             }),
             Message::KeyframeRequest,
+            Message::InputFocus { focused: false },
         ]
     }
 

@@ -3,6 +3,7 @@
 
 use std::collections::HashMap;
 use std::error::Error;
+use std::time::Instant;
 
 use openxr as xr;
 use tether_protocol::{
@@ -11,7 +12,10 @@ use tether_protocol::{
 
 use crate::decoder::Decoder;
 use crate::egl::Egl;
+use crate::menu::{self, Command, Menu, Shape, Status};
 use crate::net::{Event, Net};
+use crate::panel::Panel;
+use crate::passthrough::{self, Passthrough};
 use crate::render::Renderer;
 use crate::video::VideoTexture;
 
@@ -46,6 +50,12 @@ pub struct Headset {
     video: VideoTexture,
     eyes: Vec<Eye>,
     input: Input,
+    menu: Menu,
+    menu_open: bool,
+    /// The room from the headset cameras, shown instead of the stream while it exists.
+    passthrough: Option<Passthrough>,
+    panel: Panel,
+    status: Status,
     view_space: xr::Space,
     /// The tracking space every pose on the wire is in: floor at y = 0.
     space: xr::Space,
@@ -130,6 +140,8 @@ impl Headset {
         extensions.khr_opengl_es_enable = true;
         extensions.fb_display_refresh_rate = available.fb_display_refresh_rate;
         extensions.khr_convert_timespec_time = available.khr_convert_timespec_time;
+        extensions.khr_composition_layer_cylinder = available.khr_composition_layer_cylinder;
+        extensions.fb_passthrough = available.fb_passthrough;
         // OpenXR 1.1 makes LOCAL_FLOOR core; older runtimes get 1.0. The patch must be the
         // headers' own: Meta's runtime treats a low patch as a legacy app and switches on
         // compatibility behaviour, which disables STAGE among other things.
@@ -225,6 +237,13 @@ impl Headset {
         let gl = egl.gl();
         let video = VideoTexture::new(&egl, &gl)?;
         let renderer = Renderer::new(gl)?;
+        let panel = Panel::new(&session, &renderer.gl, format, menu::PIXELS)?;
+        let shape = if instance.exts().khr_composition_layer_cylinder.is_some() {
+            Shape::Curved
+        } else {
+            Shape::Flat
+        };
+        log::info!("menu panel: {shape:?}");
         let profile = DeviceProfile {
             name: system_name,
             eye_width: config_views[0].recommended_image_rect_width,
@@ -239,6 +258,15 @@ impl Headset {
             video,
             eyes,
             input,
+            menu: Menu::new(shape),
+            menu_open: false,
+            panel,
+            status: Status {
+                connected: false,
+                video: None,
+                passthrough: false,
+            },
+            passthrough: None,
             view_space,
             space,
             frame_stream,
@@ -299,15 +327,21 @@ impl Headset {
     fn pump_network(&mut self) {
         while let Ok(event) = self.net.events.try_recv() {
             match event {
-                Event::Connected => log::info!("streaming link up"),
+                Event::Connected => {
+                    log::info!("streaming link up");
+                    self.status.connected = true;
+                }
                 Event::Disconnected => {
                     log::info!("streaming link down");
+                    self.status.connected = false;
+                    self.status.video = None;
                     self.decoder = None;
                     self.pending.clear();
                     self.shown = None;
                 }
                 Event::Message(Message::ServerHello(hello)) => {
                     log::info!("video {}x{}", hello.video_width, hello.video_height);
+                    self.status.video = Some((hello.video_width, hello.video_height));
                     self.pending.clear();
                     self.decoder = Decoder::new(hello.video_width, hello.video_height, true)
                         .map_err(|e| log::error!("decoder: {e}"))
@@ -402,12 +436,61 @@ impl Headset {
                     )
             })
             .collect();
-        let layer = xr::CompositionLayerProjection::new()
+        let video = xr::CompositionLayerProjection::new()
             .space(&self.space)
             .views(&projection);
+        let room = self.passthrough.as_ref().map(Passthrough::layer);
+        let mut layers: Vec<&xr::CompositionLayerBase<'_, xr::OpenGlEs>> = Vec::with_capacity(2);
+        match &room {
+            Some(room) => layers.push(passthrough::as_base(room)),
+            None => layers.push(&*video),
+        }
+        let Some(panel_pose) = self.menu.panel() else {
+            self.frame_stream
+                .end(time, xr::EnvironmentBlendMode::OPAQUE, &layers)?;
+            return Ok(());
+        };
+        if self.menu.redraw(self.status) {
+            self.panel.upload(&self.renderer.gl, &self.menu.canvas);
+        }
+        self.panel.draw(&self.renderer.gl)?;
+        let pose = posef(&panel_pose);
+        let cylinder;
+        let quad;
+        match self.menu.shape() {
+            Shape::Curved => {
+                cylinder = self.panel.cylinder(
+                    &self.space,
+                    pose,
+                    menu::RADIUS_M,
+                    menu::CENTRAL_ANGLE,
+                    menu::ASPECT,
+                );
+                layers.push(&*cylinder);
+            }
+            Shape::Flat => {
+                quad = self.panel.quad(&self.space, pose, Shape::Flat.size_m());
+                layers.push(&*quad);
+            }
+        }
         self.frame_stream
-            .end(time, xr::EnvironmentBlendMode::OPAQUE, &[&layer])?;
+            .end(time, xr::EnvironmentBlendMode::OPAQUE, &layers)?;
         Ok(())
+    }
+
+    fn toggle_passthrough(&mut self) {
+        if self.passthrough.take().is_some() {
+            log::info!("passthrough off");
+        } else {
+            match Passthrough::start(&self.session) {
+                Ok(p) => {
+                    log::info!("passthrough on");
+                    self.passthrough = Some(p);
+                }
+                Err(e) => log::error!("passthrough: {e}"),
+            }
+        }
+        self.status.passthrough = self.passthrough.is_some();
     }
 
     fn send_tracking(&mut self, time: xr::Time) -> Result<(), xr::sys::Result> {
@@ -425,7 +508,32 @@ impl Headset {
         if !head_valid || !eyes_valid {
             return Ok(());
         }
-        let controllers = self.input.sample(&self.session, &self.space, time)?;
+        let mut controllers = self.input.sample(&self.session, &self.space, time)?;
+        let outcome = self
+            .menu
+            .input(&mut controllers, &pose(head.pose), Instant::now());
+        // The app pauses and hides its controllers while the menu holds input focus.
+        let open = self.menu.panel().is_some();
+        if open != self.menu_open {
+            self.menu_open = open;
+            self.net.send(&Message::InputFocus { focused: !open });
+        }
+        if outcome.command == Some(Command::TogglePassthrough) {
+            self.toggle_passthrough();
+        }
+        if outcome.command == Some(Command::Recenter) {
+            log::info!("recenter from the menu");
+            self.net.send(&Message::Recenter);
+        }
+        if let Some(hand) = outcome.buzz {
+            let tick = Haptics {
+                hand: hand as u8,
+                amplitude: 0.5,
+                duration_ns: 20_000_000,
+                frequency: 0.0,
+            };
+            self.input.haptics(&self.session, &tick);
+        }
         let tracking = Tracking {
             sample_time_ns: self.to_monotonic(time),
             head: pose(head.pose),

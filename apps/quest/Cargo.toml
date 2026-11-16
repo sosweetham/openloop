@@ -12,6 +12,8 @@ crate-type = ["cdylib"]
 [target.'cfg(target_os = "android")'.dependencies]
 android-activity = { version = "0.6", features = ["native-activity"] }
 android_logger = "0.15"
+fontdue = "0.9"
+glam = "0.34"
 glow = "0.18"
 khronos-egl = { version = "6", features = ["dynamic"] }
 libc = "0.2"

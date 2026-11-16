@@ -433,9 +433,14 @@ pub unsafe extern "C" fn xr_sync_actions(
         ffi::expect_type(info.type_, XrStructureType::XR_TYPE_ACTIONS_SYNC_INFO)?;
         let active: &[XrActiveActionSet] =
             unsafe { ffi::slice(info.activeActionSets, info.countActiveActionSets) }?;
-        let controllers = {
+        // Without focus every action is inactive (OpenXR 1.1, 11.4 "Action Sets"; xrSyncActions
+        // returns XR_SESSION_NOT_FOCUSED), so apps stop drawing controllers they cannot locate.
+        let focused = s.is_focused();
+        let controllers = if focused {
             let state = headset().state();
             [state.controller(0), state.controller(1)]
+        } else {
+            [None, None]
         };
         let mut input = s.input.lock().unwrap_or_else(|e| e.into_inner());
         for set in active {
@@ -446,7 +451,7 @@ pub unsafe extern "C" fn xr_sync_actions(
         input.active = active.iter().map(|a| id(a.actionSet)).collect();
         input.before = std::mem::replace(&mut input.now, controllers);
         input.synced_at = now_ns();
-        if !s.is_visible() {
+        if !focused {
             return Ok(XrResult::XR_SESSION_NOT_FOCUSED);
         }
         OK

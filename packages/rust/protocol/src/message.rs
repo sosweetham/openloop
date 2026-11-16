@@ -138,4 +138,9 @@ pub enum Message {
     Haptics(Haptics),
     /// The client lost decoder state and needs a keyframe to recover.
     KeyframeRequest,
+    /// Client → Mac: whether the app has input focus. Tether's menu takes it while open; the
+    /// runtime then moves the app's session to VISIBLE, which apps answer by pausing.
+    InputFocus {
+        focused: bool,
+    },
 }

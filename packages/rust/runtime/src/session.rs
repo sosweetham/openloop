@@ -80,6 +80,40 @@ impl Session {
             || state == XrSessionState::XR_SESSION_STATE_FOCUSED
     }
 
+    pub fn is_focused(&self) -> bool {
+        self.lifecycle
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .state
+            == XrSessionState::XR_SESSION_STATE_FOCUSED
+    }
+
+    /// Moves a running session between FOCUSED and VISIBLE as Tether's menu on the headset takes
+    /// and returns input focus. VISIBLE is how OpenXR tells an app that a system overlay has the
+    /// input: apps keep rendering but pause and hide their controllers.
+    fn track_focus(&self, session: u64) {
+        let focused = headset().state().app_focused();
+        let Some(instance) = self.instance() else {
+            return;
+        };
+        let mut lifecycle = self.lifecycle.lock().unwrap_or_else(|e| e.into_inner());
+        let next = match (lifecycle.state, focused) {
+            (XrSessionState::XR_SESSION_STATE_FOCUSED, false) => XrSessionState::XR_SESSION_STATE_VISIBLE,
+            (XrSessionState::XR_SESSION_STATE_VISIBLE, true) if lifecycle.running => {
+                XrSessionState::XR_SESSION_STATE_FOCUSED
+            }
+            _ => return,
+        };
+        lifecycle.state = next;
+        instance.push_event(XrEventDataSessionStateChanged {
+            type_: XrStructureType::XR_TYPE_EVENT_DATA_SESSION_STATE_CHANGED,
+            next: std::ptr::null(),
+            session: handle(session),
+            state: next,
+            time: now_ns(),
+        });
+    }
+
     pub fn local_anchor(&self) -> Rigid {
         self.anchors.lock().unwrap_or_else(|e| e.into_inner()).local
     }
@@ -160,6 +194,7 @@ pub fn poll_sessions(instance: u64) {
     for (session_id, session) in OBJECTS.sessions.all() {
         if session.instance == instance {
             session.track_anchors(session_id);
+            session.track_focus(session_id);
         }
     }
 }
@@ -351,6 +386,7 @@ pub unsafe extern "C" fn xr_wait_frame(
             return Err(XrResult::XR_ERROR_SESSION_NOT_RUNNING);
         }
         s.track_anchors(id(session));
+        s.track_focus(id(session));
 
         let period = (1e9 / system::refresh_rate() as f64) as i64;
         let deadline = {

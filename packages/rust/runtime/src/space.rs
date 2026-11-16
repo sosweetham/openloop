@@ -52,6 +52,8 @@ pub fn pose_in_tracking(space: &Space, session: &Session, time: i64) -> Option<R
             }
         }
         Kind::Reference(_) => Rigid::IDENTITY,
+        // Inactive pose actions cannot be located; without focus every action is inactive.
+        Kind::Action { .. } if !session.is_focused() => return None,
         Kind::Action { action, subaction } => {
             let (hand, kind) = actions::pose_binding(session, action, subaction)?;
             let (grip, aim) = headset().state().hand_at(hand, time)?;

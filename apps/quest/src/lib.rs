@@ -4,8 +4,12 @@
 mod decoder;
 mod egl;
 mod headset;
+mod menu;
 mod net;
+mod panel;
+mod passthrough;
 mod render;
+mod ui;
 mod video;
 
 use std::error::Error;

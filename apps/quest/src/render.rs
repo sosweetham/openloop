@@ -4,7 +4,8 @@ use glow::HasContext;
 
 const GL_TEXTURE_EXTERNAL_OES: u32 = 0x8D65;
 
-const VERTEX: &str = r#"#version 300 es
+/// A full-screen triangle; `v_pos` runs 0..1 from the bottom-left.
+pub const VERTEX: &str = r#"#version 300 es
 out vec2 v_pos;
 void main() {
     vec2 xy = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));
@@ -32,6 +33,37 @@ void main() {
 }
 "#;
 
+/// # Safety
+/// The GLES context must be current.
+pub unsafe fn program(
+    gl: &glow::Context,
+    vertex: &str,
+    fragment: &str,
+) -> Result<glow::Program, String> {
+    // SAFETY: forwarded from the caller.
+    unsafe {
+        let program = gl.create_program()?;
+        for (kind, source) in [
+            (glow::VERTEX_SHADER, vertex),
+            (glow::FRAGMENT_SHADER, fragment),
+        ] {
+            let shader = gl.create_shader(kind)?;
+            gl.shader_source(shader, source);
+            gl.compile_shader(shader);
+            if !gl.get_shader_compile_status(shader) {
+                return Err(format!("shader: {}", gl.get_shader_info_log(shader)));
+            }
+            gl.attach_shader(program, shader);
+            gl.delete_shader(shader);
+        }
+        gl.link_program(program);
+        if !gl.get_program_link_status(program) {
+            return Err(format!("program: {}", gl.get_program_info_log(program)));
+        }
+        Ok(program)
+    }
+}
+
 pub struct Renderer {
     pub gl: glow::Context,
     framebuffer: glow::Framebuffer,
@@ -47,23 +79,7 @@ impl Renderer {
         unsafe {
             let framebuffer = gl.create_framebuffer()?;
             let vertex_array = gl.create_vertex_array()?;
-            let program = gl.create_program()?;
-            for (kind, source) in [
-                (glow::VERTEX_SHADER, VERTEX),
-                (glow::FRAGMENT_SHADER, FRAGMENT),
-            ] {
-                let shader = gl.create_shader(kind)?;
-                gl.shader_source(shader, source);
-                gl.compile_shader(shader);
-                if !gl.get_shader_compile_status(shader) {
-                    return Err(format!("shader: {}", gl.get_shader_info_log(shader)));
-                }
-                gl.attach_shader(program, shader);
-            }
-            gl.link_program(program);
-            if !gl.get_program_link_status(program) {
-                return Err(format!("program: {}", gl.get_program_info_log(program)));
-            }
+            let program = program(&gl, VERTEX, FRAGMENT)?;
             let offset = gl.get_uniform_location(program, "u_offset");
             let scale = gl.get_uniform_location(program, "u_scale");
             Ok(Self {
@@ -110,7 +126,7 @@ impl Renderer {
         }
     }
 
-    unsafe fn bind_target(&self, target: u32) {
+    pub unsafe fn bind_target(&self, target: u32) {
         let gl = &self.gl;
         let texture = NonZeroU32::new(target).map(glow::NativeTexture);
         // SAFETY: forwarded from the caller.
