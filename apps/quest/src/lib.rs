@@ -1,9 +1,12 @@
 //! Tether's headset client for Meta Quest. See `docs/ARCHITECTURE.md` § Quest client.
 #![cfg(target_os = "android")]
 
+mod decoder;
 mod egl;
 mod headset;
+mod net;
 mod render;
+mod video;
 
 use std::error::Error;
 use std::time::Duration;
