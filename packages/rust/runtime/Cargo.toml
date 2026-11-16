@@ -10,7 +10,13 @@ name = "tether_runtime"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+glam = "0.34"
+objc2 = "0.6"
+objc2-foundation = "0.3"
+objc2-metal = { version = "0.3", features = ["objc2-io-surface"] }
 tether-openxr-abi.workspace = true
+tether-protocol = { path = "../protocol" }
+tether-stream = { path = "../stream" }
 
 [lints]
 workspace = true

@@ -3,7 +3,7 @@ use std::ffi::{CStr, c_char};
 use tether_openxr_abi::{PFN_xrVoidFunction, XrInstance, XrResult};
 
 use crate::generated::{Entries, Requirement, lookup};
-use crate::{extensions, ffi, instance, strings, system};
+use crate::{actions, extensions, ffi, instance, session, space, strings, swapchain, system};
 
 /// Every entry point the runtime hands out. Fields are typed by the spec's PFN aliases, so an
 /// implementation with a drifted signature fails to compile; anything not set here is a
@@ -16,9 +16,62 @@ static ENTRIES: Entries = {
     e.xrCreateInstance = Some(instance::xr_create_instance);
     e.xrDestroyInstance = Some(instance::xr_destroy_instance);
     e.xrGetInstanceProperties = Some(instance::xr_get_instance_properties);
+    e.xrPollEvent = Some(instance::xr_poll_event);
+    e.xrStringToPath = Some(instance::xr_string_to_path);
+    e.xrPathToString = Some(instance::xr_path_to_string);
     e.xrResultToString = Some(strings::xr_result_to_string);
     e.xrStructureTypeToString = Some(strings::xr_structure_type_to_string);
+
     e.xrGetSystem = Some(system::xr_get_system);
+    e.xrGetSystemProperties = Some(system::xr_get_system_properties);
+    e.xrEnumerateViewConfigurations = Some(system::xr_enumerate_view_configurations);
+    e.xrGetViewConfigurationProperties = Some(system::xr_get_view_configuration_properties);
+    e.xrEnumerateViewConfigurationViews = Some(system::xr_enumerate_view_configuration_views);
+    e.xrEnumerateEnvironmentBlendModes = Some(system::xr_enumerate_environment_blend_modes);
+    e.xrGetMetalGraphicsRequirementsKHR = Some(system::xr_get_metal_graphics_requirements);
+
+    e.xrCreateSession = Some(session::xr_create_session);
+    e.xrDestroySession = Some(session::xr_destroy_session);
+    e.xrBeginSession = Some(session::xr_begin_session);
+    e.xrEndSession = Some(session::xr_end_session);
+    e.xrRequestExitSession = Some(session::xr_request_exit_session);
+    e.xrWaitFrame = Some(session::xr_wait_frame);
+    e.xrBeginFrame = Some(session::xr_begin_frame);
+    e.xrEndFrame = Some(session::xr_end_frame);
+
+    e.xrEnumerateReferenceSpaces = Some(space::xr_enumerate_reference_spaces);
+    e.xrCreateReferenceSpace = Some(space::xr_create_reference_space);
+    e.xrGetReferenceSpaceBoundsRect = Some(space::xr_get_reference_space_bounds_rect);
+    e.xrCreateActionSpace = Some(space::xr_create_action_space);
+    e.xrDestroySpace = Some(space::xr_destroy_space);
+    e.xrLocateSpace = Some(space::xr_locate_space);
+    e.xrLocateSpaces = Some(space::xr_locate_spaces);
+    e.xrLocateViews = Some(space::xr_locate_views);
+
+    e.xrEnumerateSwapchainFormats = Some(swapchain::xr_enumerate_swapchain_formats);
+    e.xrCreateSwapchain = Some(swapchain::xr_create_swapchain);
+    e.xrDestroySwapchain = Some(swapchain::xr_destroy_swapchain);
+    e.xrEnumerateSwapchainImages = Some(swapchain::xr_enumerate_swapchain_images);
+    e.xrAcquireSwapchainImage = Some(swapchain::xr_acquire_swapchain_image);
+    e.xrWaitSwapchainImage = Some(swapchain::xr_wait_swapchain_image);
+    e.xrReleaseSwapchainImage = Some(swapchain::xr_release_swapchain_image);
+
+    e.xrCreateActionSet = Some(actions::xr_create_action_set);
+    e.xrDestroyActionSet = Some(actions::xr_destroy_action_set);
+    e.xrCreateAction = Some(actions::xr_create_action);
+    e.xrDestroyAction = Some(actions::xr_destroy_action);
+    e.xrSuggestInteractionProfileBindings = Some(actions::xr_suggest_interaction_profile_bindings);
+    e.xrAttachSessionActionSets = Some(actions::xr_attach_session_action_sets);
+    e.xrGetCurrentInteractionProfile = Some(actions::xr_get_current_interaction_profile);
+    e.xrSyncActions = Some(actions::xr_sync_actions);
+    e.xrGetActionStateBoolean = Some(actions::xr_get_action_state_boolean);
+    e.xrGetActionStateFloat = Some(actions::xr_get_action_state_float);
+    e.xrGetActionStateVector2f = Some(actions::xr_get_action_state_vector2f);
+    e.xrGetActionStatePose = Some(actions::xr_get_action_state_pose);
+    e.xrApplyHapticFeedback = Some(actions::xr_apply_haptic_feedback);
+    e.xrStopHapticFeedback = Some(actions::xr_stop_haptic_feedback);
+    e.xrEnumerateBoundSourcesForAction = Some(actions::xr_enumerate_bound_sources_for_action);
+    e.xrGetInputSourceLocalizedName = Some(actions::xr_get_input_source_localized_name);
     e
 };
 

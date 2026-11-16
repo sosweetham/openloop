@@ -1,12 +1,94 @@
-use std::ffi::c_char;
+use std::ffi::{CStr, c_char};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
-use tether_openxr_abi::XrResult;
+use tether_openxr_abi::{XrResult, XrStructureType};
 
 /// Runs an entry point's body, turning a panic into `XR_ERROR_RUNTIME_FAILURE`
 /// instead of unwinding into (or aborting) the host app.
 pub fn guard(body: impl FnOnce() -> XrResult) -> XrResult {
     catch_unwind(AssertUnwindSafe(body)).unwrap_or(XrResult::XR_ERROR_RUNTIME_FAILURE)
+}
+
+pub type XrOutcome = Result<XrResult, XrResult>;
+
+/// [`guard`] for bodies written with `?`: `Ok` carries a success code, `Err` a failure.
+pub fn call(body: impl FnOnce() -> XrOutcome) -> XrResult {
+    guard(|| body().unwrap_or_else(|e| e))
+}
+
+pub const OK: XrOutcome = Ok(XrResult::XR_SUCCESS);
+
+/// A caller-provided input struct; null is a validation failure.
+///
+/// # Safety
+/// Non-null pointers must be valid for reads for the duration of the call.
+pub unsafe fn read<'a, T>(p: *const T) -> Result<&'a T, XrResult> {
+    // SAFETY: forwarded from the caller.
+    unsafe { p.as_ref() }.ok_or(XrResult::XR_ERROR_VALIDATION_FAILURE)
+}
+
+/// A caller-provided output struct; null is a validation failure.
+///
+/// # Safety
+/// Non-null pointers must be valid for writes for the duration of the call.
+pub unsafe fn write<'a, T>(p: *mut T) -> Result<&'a mut T, XrResult> {
+    // SAFETY: forwarded from the caller.
+    unsafe { p.as_mut() }.ok_or(XrResult::XR_ERROR_VALIDATION_FAILURE)
+}
+
+/// A counted array from an input struct; `count == 0` allows a null pointer.
+///
+/// # Safety
+/// When `count > 0`, `p` must point to `count` valid elements.
+pub unsafe fn slice<'a, T>(p: *const T, count: u32) -> Result<&'a [T], XrResult> {
+    match count {
+        0 => Ok(&[]),
+        _ if p.is_null() => Err(XrResult::XR_ERROR_VALIDATION_FAILURE),
+        // SAFETY: forwarded from the caller.
+        n => Ok(unsafe { std::slice::from_raw_parts(p, n as usize) }),
+    }
+}
+
+pub fn expect_type(actual: XrStructureType, expected: XrStructureType) -> Result<(), XrResult> {
+    if actual == expected {
+        Ok(())
+    } else {
+        Err(XrResult::XR_ERROR_VALIDATION_FAILURE)
+    }
+}
+
+/// A fixed-size C string field; `None` if it has no terminator or is not UTF-8.
+pub fn fixed_str(field: &[c_char]) -> Option<String> {
+    let bytes: Vec<u8> = field.iter().map(|&c| c as u8).collect();
+    CStr::from_bytes_until_nul(&bytes)
+        .ok()?
+        .to_str()
+        .ok()
+        .map(str::to_owned)
+}
+
+/// Walks a `next` chain for the first struct of type `ty`.
+///
+/// # Safety
+/// `next` must be null or a valid OpenXR structure chain.
+pub unsafe fn find_in_chain<T>(
+    mut next: *const std::ffi::c_void,
+    ty: XrStructureType,
+) -> Option<*mut T> {
+    #[repr(C)]
+    struct Header {
+        ty: XrStructureType,
+        next: *const std::ffi::c_void,
+    }
+    while !next.is_null() {
+        // SAFETY: every OpenXR chain element starts with `type` and `next`.
+        let header = unsafe { &*(next as *const Header) };
+        if header.ty == ty {
+            return Some(next as *mut T);
+        }
+        next = header.next;
+    }
+    None
 }
 
 /// Copies `src` into a fixed-size C string field, truncating to leave room for NUL.

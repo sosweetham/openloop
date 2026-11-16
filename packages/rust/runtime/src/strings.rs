@@ -43,7 +43,7 @@ unsafe fn write_name(
     name: impl FnOnce() -> String,
 ) -> XrResult {
     ffi::guard(|| {
-        if !instance::is_live(handle) {
+        if instance::get(handle).is_none() {
             return XrResult::XR_ERROR_HANDLE_INVALID;
         }
         if buffer.is_null() {

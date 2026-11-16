@@ -1,0 +1,47 @@
+//! Tether's headset client for Meta Quest. See `docs/ARCHITECTURE.md` § Quest client.
+#![cfg(target_os = "android")]
+
+mod egl;
+mod headset;
+mod render;
+
+use std::error::Error;
+use std::time::Duration;
+
+use android_activity::{AndroidApp, MainEvent, PollEvent};
+
+#[unsafe(no_mangle)]
+fn android_main(app: AndroidApp) {
+    android_logger::init_once(
+        android_logger::Config::default()
+            .with_max_level(log::LevelFilter::Info)
+            .with_tag("Tether"),
+    );
+    if let Err(e) = run(&app) {
+        log::error!("{e}");
+    }
+}
+
+fn run(app: &AndroidApp) -> Result<(), Box<dyn Error>> {
+    let mut headset = headset::Headset::new()?;
+    let mut destroyed = false;
+    while !destroyed {
+        let timeout = if headset.is_running() {
+            Duration::ZERO
+        } else {
+            Duration::from_millis(100)
+        };
+        app.poll_events(Some(timeout), |event| {
+            if let PollEvent::Main(MainEvent::Destroy) = event {
+                destroyed = true;
+            }
+        });
+        if !headset.poll()? {
+            break;
+        }
+        if headset.is_running() {
+            headset.frame()?;
+        }
+    }
+    Ok(())
+}
