@@ -25,3 +25,12 @@ cargo build                    # runtime → target/debug/libtether_runtime.dyli
 
 `scripts/run.sh` writes the runtime manifest and points the loader at it through
 `XR_RUNTIME_JSON`, so nothing is installed system-wide.
+
+The same works for a Godot 4.7+ project, which is the bar for "useful to game
+developers": [`examples/godot/hello`](examples/godot/hello) is stock Godot with
+OpenXR enabled and nothing Tether-specific.
+
+```sh
+godot --headless --import --path examples/godot/hello   # once
+./scripts/run.sh godot --path examples/godot/hello
+```
