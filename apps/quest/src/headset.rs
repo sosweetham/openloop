@@ -412,9 +412,19 @@ impl Headset {
 
     fn send_tracking(&mut self, time: xr::Time) -> Result<(), xr::sys::Result> {
         let (head, head_velocity) = self.view_space.relate(&self.space, time)?;
-        let (_, eyes) = self
+        let (view_state, eyes) = self
             .session
             .locate_views(VIEW_TYPE, time, &self.view_space)?;
+        // An invalid location's pose is undefined (Horizon OS reports one around every
+        // recenter). Skipping the sample makes the Mac hold the last good one.
+        let head_valid = head.location_flags.contains(
+            xr::SpaceLocationFlags::ORIENTATION_VALID | xr::SpaceLocationFlags::POSITION_VALID,
+        );
+        let eyes_valid = view_state
+            .contains(xr::ViewStateFlags::ORIENTATION_VALID | xr::ViewStateFlags::POSITION_VALID);
+        if !head_valid || !eyes_valid {
+            return Ok(());
+        }
         let controllers = self.input.sample(&self.session, &self.space, time)?;
         let tracking = Tracking {
             sample_time_ns: self.to_monotonic(time),
@@ -544,9 +554,9 @@ impl Input {
             }
             let (grip, grip_velocity) = self.grip_spaces[hand].relate(space, time)?;
             let aim = self.aim_spaces[hand].locate(space, time)?;
-            let tracked = grip
-                .location_flags
-                .contains(xr::SpaceLocationFlags::POSITION_VALID);
+            let valid =
+                xr::SpaceLocationFlags::ORIENTATION_VALID | xr::SpaceLocationFlags::POSITION_VALID;
+            let tracked = grip.location_flags.contains(valid) && aim.location_flags.contains(valid);
             state.active = tracked;
             state.grip = pose(grip.pose);
             state.aim = pose(aim.pose);

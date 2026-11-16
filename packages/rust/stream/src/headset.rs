@@ -83,7 +83,11 @@ impl HeadsetState {
     ) -> Option<Rigid> {
         let (sample, sample_ns) = self.tracking.as_ref()?;
         let (pose, velocity) = f(sample);
-        let dt = if self.live { (time_ns - sample_ns).clamp(0, MAX_PREDICTION_NS) } else { 0 };
+        let dt = if self.live {
+            (time_ns - sample_ns).clamp(0, MAX_PREDICTION_NS)
+        } else {
+            0
+        };
         Some(pose::predict(pose, &velocity, dt as f32 * 1e-9))
     }
 }
@@ -197,6 +201,8 @@ impl Headset {
             }
             Message::ClientHello(_) => link.shutdown(),
             Message::ClockPong { mac_ns, client_ns } => state.clock.observe(mac_ns, client_ns, now),
+            // A pose that is not finite and unit-length would reach the app as NaN.
+            Message::Tracking(tracking) if !tracking_is_sane(&tracking) => {}
             Message::Tracking(tracking) => {
                 let at = if state.clock.is_synced() {
                     state.clock.to_mac(tracking.sample_time_ns)
@@ -220,6 +226,23 @@ impl Headset {
     }
 }
 
+fn pose_is_sane(p: &tether_protocol::Pose) -> bool {
+    let norm: f32 = p.orientation.iter().map(|q| q * q).sum();
+    p.position
+        .iter()
+        .chain(&p.orientation)
+        .all(|v| v.is_finite())
+        && (norm - 1.0).abs() < 1e-2
+}
+
+fn tracking_is_sane(t: &Tracking) -> bool {
+    pose_is_sane(&t.head)
+        && t.views.iter().all(|v| pose_is_sane(&v.pose))
+        && t.controllers
+            .iter()
+            .all(|c| !c.active || (pose_is_sane(&c.grip) && pose_is_sane(&c.aim)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -228,13 +251,22 @@ mod tests {
     #[test]
     fn a_retired_link_holds_the_last_pose() {
         let mut state = HeadsetState::default();
-        let head = Pose { position: [1.0, 1.5, -2.0], ..Pose::IDENTITY };
-        let mut controller = ControllerState { active: true, ..Default::default() };
+        let head = Pose {
+            position: [1.0, 1.5, -2.0],
+            ..Pose::IDENTITY
+        };
+        let mut controller = ControllerState {
+            active: true,
+            ..Default::default()
+        };
         controller.grip = head;
         state.tracking = Some((
             Tracking {
                 head,
-                head_velocity: Velocity { linear: [1.0, 0.0, 0.0], ..Default::default() },
+                head_velocity: Velocity {
+                    linear: [1.0, 0.0, 0.0],
+                    ..Default::default()
+                },
                 controllers: [controller, controller],
                 ..Default::default()
             },
@@ -242,12 +274,41 @@ mod tests {
         ));
         state.live = true;
         state.recenters = 3;
-        assert!(state.head_at(50_000_000).translation.x > 1.0, "live links extrapolate");
+        assert!(
+            state.head_at(50_000_000).translation.x > 1.0,
+            "live links extrapolate"
+        );
 
         state.retire();
         assert!(!state.connected());
-        assert_eq!(state.head_at(50_000_000), Rigid::from_pose(&head), "held, not extrapolated");
-        assert!(state.controller(0).is_none(), "untracked hands are inactive");
+        assert_eq!(
+            state.head_at(50_000_000),
+            Rigid::from_pose(&head),
+            "held, not extrapolated"
+        );
+        assert!(
+            state.controller(0).is_none(),
+            "untracked hands are inactive"
+        );
         assert_eq!(state.recenters, 3, "recenter count survives the link");
+    }
+
+    #[test]
+    fn undefined_poses_are_rejected() {
+        let good = Tracking {
+            head: Pose::IDENTITY,
+            views: pose::default_views(),
+            ..Default::default()
+        };
+        assert!(tracking_is_sane(&good));
+        let mut zero = good.clone();
+        zero.head.orientation = [0.0; 4];
+        assert!(
+            !tracking_is_sane(&zero),
+            "an all-zero quaternion is not a rotation"
+        );
+        let mut nan = good.clone();
+        nan.views[1].pose.position[0] = f32::NAN;
+        assert!(!tracking_is_sane(&nan));
     }
 }
