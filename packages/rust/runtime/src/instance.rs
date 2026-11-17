@@ -11,7 +11,7 @@ use tether_openxr_abi::{
 use crate::ffi::{self, OK};
 use crate::generated::Requirement;
 use crate::handles::{handle, id};
-use crate::state::{OBJECTS, headset};
+use crate::state::OBJECTS;
 use crate::{extensions, version};
 
 pub struct Instance {
@@ -118,7 +118,8 @@ pub unsafe extern "C" fn xr_create_instance(
             instance.app_name,
             instance.api_minor()
         );
-        headset();
+        let engine = ffi::fixed_str(&info.applicationInfo.engineName).unwrap_or_default();
+        crate::link::connect(&instance.app_name, &engine, instance.api_version)?;
         *out = handle(OBJECTS.instances.insert(instance));
         OK
     })

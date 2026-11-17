@@ -7,9 +7,11 @@ use std::time::Instant;
 
 use openxr as xr;
 use tether_protocol::{
-    ControllerState, DeviceProfile, Fov, Haptics, Message, Pose, Tracking, Velocity, View, button,
+    ControllerState, DeviceProfile, Fov, Haptics, Message, PROTOCOL_VERSION, Pose, Tracking,
+    Velocity, View, button,
 };
 
+use crate::audio::Audio;
 use crate::decoder::Decoder;
 use crate::egl::Egl;
 use crate::menu::{self, Command, Menu, Shape, Status};
@@ -66,6 +68,7 @@ pub struct Headset {
     events: xr::EventDataBuffer,
     running: bool,
     net: Net,
+    _audio: Audio,
     decoder: Option<Decoder>,
     /// Render views of frames sent but not yet shown, by frame index.
     pending: HashMap<u64, [View; 2]>,
@@ -244,6 +247,9 @@ impl Headset {
             Shape::Flat
         };
         log::info!("menu panel: {shape:?}");
+        let (packets, playout) = tether_playout::new(tether_playout::Config::default());
+        let audio = Audio::start(playout);
+        let (audio_sample_rate, audio_channels) = audio.granted().get();
         let profile = DeviceProfile {
             name: system_name,
             eye_width: config_views[0].recommended_image_rect_width,
@@ -252,6 +258,8 @@ impl Headset {
             refresh_rate,
             interaction_profile: TOUCH.into(),
             supports_hevc: true,
+            audio_sample_rate,
+            audio_channels,
         };
         Ok(Self {
             renderer,
@@ -275,7 +283,8 @@ impl Headset {
             instance,
             events: xr::EventDataBuffer::new(),
             running: false,
-            net: Net::start(profile),
+            net: Net::start(profile, packets, audio.granted()),
+            _audio: audio,
             decoder: None,
             pending: HashMap::new(),
             shown: None,
@@ -334,10 +343,19 @@ impl Headset {
                 Event::Disconnected => {
                     log::info!("streaming link down");
                     self.status.connected = false;
-                    self.status.video = None;
-                    self.decoder = None;
-                    self.pending.clear();
-                    self.shown = None;
+                    self.end_video();
+                }
+                Event::Message(Message::StreamEnded) => {
+                    log::info!("video stream ended");
+                    self.end_video();
+                }
+                Event::Message(Message::ServerHello(hello))
+                    if hello.version != PROTOCOL_VERSION =>
+                {
+                    log::error!(
+                        "the Mac speaks protocol {}, this client {PROTOCOL_VERSION}",
+                        hello.version
+                    );
                 }
                 Event::Message(Message::ServerHello(hello)) => {
                     log::info!("video {}x{}", hello.video_width, hello.video_height);
@@ -365,6 +383,14 @@ impl Headset {
         {
             self.net.send(&Message::KeyframeRequest);
         }
+    }
+
+    /// Back to waiting for a stream: the placeholder replaces the last frame.
+    fn end_video(&mut self) {
+        self.status.video = None;
+        self.decoder = None;
+        self.pending.clear();
+        self.shown = None;
     }
 
     fn latest_video(&mut self) {

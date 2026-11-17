@@ -23,8 +23,17 @@ cargo build                    # runtime → target/debug/libtether_runtime.dyli
 ./scripts/run.sh build/openxr-sdk/src/tests/hello_xr/hello_xr -g Metal
 ```
 
-`scripts/run.sh` writes the runtime manifest and points the loader at it through
-`XR_RUNTIME_JSON`, so nothing is installed system-wide.
+`scripts/run.sh` makes sure this checkout's `tetherd`, the per-user agent that owns the
+headset, is installed and running (`scripts/tetherd.sh ensure`), then writes the runtime
+manifest and points the loader at it through `XR_RUNTIME_JSON`; the runtime itself is not
+installed system-wide. `scripts/tetherd.sh` also restarts, stops, shows, follows and
+uninstalls the agent. The headset needs this checkout's Quest app
+(`scripts/quest-apk.sh --install`).
+
+To hear the app in the headset instead of on the Mac, grant `tetherd` the System Audio
+Recording permission once, sitting at the Mac: `scripts/tetherd.sh audio-permission` (click
+Allow), then `scripts/tetherd.sh audio-check`. `TETHER_AUDIO=off scripts/tetherd.sh install`
+keeps the sound on the Mac.
 
 The same works for a Godot 4.7+ project, which is the bar for "useful to game
 developers": [`examples/godot/hello`](examples/godot/hello) is stock Godot with

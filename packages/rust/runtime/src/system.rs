@@ -12,10 +12,11 @@ use tether_openxr_abi::{
     XrStructureType, XrSystemGetInfo, XrSystemId, XrSystemProperties,
     XrViewConfigurationProperties, XrViewConfigurationType, XrViewConfigurationView,
 };
+use tether_protocol::DeviceProfile;
 
 use crate::ffi::{self, OK};
 use crate::instance::lookup;
-use crate::state::headset;
+use crate::link::backend;
 
 pub const SYSTEM_ID: XrSystemId = 1;
 pub const STEREO: XrViewConfigurationType =
@@ -25,21 +26,15 @@ const DEFAULT_REFRESH: f32 = 90.0;
 const MAX_EYE: u32 = 4096;
 
 /// Recommended per-eye size, rounded down to even for 4:2:0 encoding.
-pub fn eye_size() -> (u32, u32) {
-    let (w, h) = headset()
-        .state()
-        .profile
-        .as_ref()
-        .map_or(DEFAULT_EYE, |p| (p.eye_width, p.eye_height));
+fn eye_size(profile: Option<&DeviceProfile>) -> (u32, u32) {
+    let (w, h) = profile.map_or(DEFAULT_EYE, |p| (p.eye_width, p.eye_height));
     (w & !1, h & !1)
 }
 
-pub fn refresh_rate() -> f32 {
-    headset()
-        .state()
-        .profile
-        .as_ref()
-        .map_or(DEFAULT_REFRESH, |p| p.refresh_rate)
+/// The headset's refresh rate, or the default before one connects; never below 1 Hz.
+pub fn refresh_rate(rate: Option<f32>) -> f32 {
+    rate.filter(|r| r.is_finite())
+        .unwrap_or(DEFAULT_REFRESH)
         .max(1.0)
 }
 
@@ -89,11 +84,7 @@ pub unsafe extern "C" fn xr_get_system_properties(
         // SAFETY: caller-provided output struct.
         let props = unsafe { ffi::write(properties) }?;
         ffi::expect_type(props.type_, XrStructureType::XR_TYPE_SYSTEM_PROPERTIES)?;
-        let name = headset()
-            .state()
-            .profile
-            .as_ref()
-            .map(|p| format!("Tether: {}", p.name));
+        let name = backend().profile().map(|p| format!("Tether: {}", p.name));
         props.systemId = SYSTEM_ID;
         props.vendorId = 0;
         ffi::write_str(&mut props.systemName, name.as_deref().unwrap_or("Tether"));
@@ -160,7 +151,7 @@ pub unsafe extern "C" fn xr_enumerate_view_configuration_views(
         lookup(handle)?;
         check_system(system)?;
         check_view_configuration(ty)?;
-        let (w, h) = eye_size();
+        let (w, h) = eye_size(backend().profile().as_ref());
         // SAFETY: forwarded caller buffers under the two-call contract.
         Ok(unsafe {
             ffi::two_call(&[(); 2], capacity, count, views, |v, _| {

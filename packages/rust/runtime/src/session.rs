@@ -21,12 +21,9 @@ use crate::ffi::{self, OK};
 use crate::frame::Streamer;
 use crate::handles::{handle, id};
 use crate::instance::Instance;
-use crate::state::{OBJECTS, headset};
+use crate::link::SessionLink;
+use crate::state::OBJECTS;
 use crate::{convert, system};
-
-/// Predicted Mac-to-photon time for a frame released now: compose and encode, the USB hop,
-/// decode and the headset's own frame. Tuned against measurements in R6.
-const PIPELINE_LATENCY_NS: i64 = 40_000_000;
 
 pub struct Queue(pub Retained<ProtocolObject<dyn MTLCommandQueue>>);
 // SAFETY: Metal command queues may be used from any thread.
@@ -36,6 +33,7 @@ unsafe impl Sync for Queue {}
 pub struct Session {
     pub instance: u64,
     pub queue: Queue,
+    pub link: SessionLink,
     lifecycle: Mutex<Lifecycle>,
     frame: Mutex<FrameTiming>,
     anchors: Mutex<Anchors>,
@@ -46,6 +44,8 @@ pub struct Session {
 struct Lifecycle {
     state: XrSessionState,
     running: bool,
+    /// XR_SESSION_STATE_LOSS_PENDING has been queued.
+    lost: bool,
 }
 
 #[derive(Default)]
@@ -92,13 +92,15 @@ impl Session {
     /// and returns input focus. VISIBLE is how OpenXR tells an app that a system overlay has the
     /// input: apps keep rendering but pause and hide their controllers.
     fn track_focus(&self, session: u64) {
-        let focused = headset().state().app_focused();
+        let focused = self.link.status().focused;
         let Some(instance) = self.instance() else {
             return;
         };
         let mut lifecycle = self.lifecycle.lock().unwrap_or_else(|e| e.into_inner());
         let next = match (lifecycle.state, focused) {
-            (XrSessionState::XR_SESSION_STATE_FOCUSED, false) => XrSessionState::XR_SESSION_STATE_VISIBLE,
+            (XrSessionState::XR_SESSION_STATE_FOCUSED, false) => {
+                XrSessionState::XR_SESSION_STATE_VISIBLE
+            }
             (XrSessionState::XR_SESSION_STATE_VISIBLE, true) if lifecycle.running => {
                 XrSessionState::XR_SESSION_STATE_FOCUSED
             }
@@ -112,6 +114,41 @@ impl Session {
             state: next,
             time: now_ns(),
         });
+    }
+
+    /// Queues XR_SESSION_STATE_LOSS_PENDING once the `tetherd` holding the session has gone
+    /// away; true from then on. "The application should destroy the current session"
+    /// (XrSessionState, XR_SESSION_STATE_LOSS_PENDING); until it does, the session paces
+    /// frames and they return the XR_SESSION_LOSS_PENDING success code.
+    fn track_loss(&self, session: u64) -> bool {
+        if !self.link.lost() {
+            return false;
+        }
+        let Some(instance) = self.instance() else {
+            return true;
+        };
+        let mut lifecycle = self.lifecycle.lock().unwrap_or_else(|e| e.into_inner());
+        if !std::mem::replace(&mut lifecycle.lost, true) {
+            lifecycle.state = XrSessionState::XR_SESSION_STATE_LOSS_PENDING;
+            instance.push_event(XrEventDataSessionStateChanged {
+                type_: XrStructureType::XR_TYPE_EVENT_DATA_SESSION_STATE_CHANGED,
+                next: std::ptr::null(),
+                session: handle(session),
+                state: XrSessionState::XR_SESSION_STATE_LOSS_PENDING,
+                time: now_ns(),
+            });
+            crate::log!("tetherd went away and took session {session} with it: loss pending");
+        }
+        true
+    }
+
+    /// What a frame call returns: a success code either way.
+    fn outcome(&self, lost: bool) -> ffi::XrOutcome {
+        Ok(if lost {
+            XrResult::XR_SESSION_LOSS_PENDING
+        } else {
+            XrResult::XR_SUCCESS
+        })
     }
 
     pub fn local_anchor(&self) -> Rigid {
@@ -141,13 +178,12 @@ impl Session {
 
     /// Captures LOCAL when tracking first arrives and moves it on every headset recenter.
     fn track_anchors(&self, session: u64) {
-        let (head, recenters, connected) = {
-            let state = headset().state();
-            (state.head_at(now_ns()), state.recenters, state.connected())
-        };
-        if !connected {
+        let tracked = self.link.tracked();
+        if !tracked.live {
             return;
         }
+        let head = tracked.head_at(now_ns());
+        let recenters = self.link.status().recenters;
         let mut anchors = self.anchors.lock().unwrap_or_else(|e| e.into_inner());
         if anchors.captured && anchors.recenters_seen == recenters {
             return;
@@ -192,7 +228,7 @@ pub fn lookup(session: XrSession) -> Result<Arc<Session>, XrResult> {
 
 pub fn poll_sessions(instance: u64) {
     for (session_id, session) in OBJECTS.sessions.all() {
-        if session.instance == instance {
+        if session.instance == instance && !session.track_loss(session_id) {
             session.track_anchors(session_id);
             session.track_focus(session_id);
         }
@@ -209,7 +245,10 @@ pub fn destroy_children_of_instance(instance: u64) {
 }
 
 fn destroy(session: u64) {
-    OBJECTS.sessions.remove(session);
+    if let Some(s) = OBJECTS.sessions.remove(session) {
+        *s.streamer.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        s.link.destroy();
+    }
     OBJECTS.spaces.remove_where(|s| s.session == session);
     OBJECTS.swapchains.remove_where(|s| s.session == session);
 }
@@ -247,13 +286,16 @@ pub unsafe extern "C" fn xr_create_session(
             Retained::retain((*binding).commandQueue as *mut ProtocolObject<dyn MTLCommandQueue>)
         }
         .ok_or(XrResult::XR_ERROR_GRAPHICS_DEVICE_INVALID)?;
+        let link = crate::link::backend().create_session()?;
 
         let session = Session {
             instance: id(instance_handle),
             queue: Queue(queue),
+            link,
             lifecycle: Mutex::new(Lifecycle {
                 state: XrSessionState::XR_SESSION_STATE_UNKNOWN,
                 running: false,
+                lost: false,
             }),
             frame: Mutex::default(),
             anchors: Mutex::new(Anchors {
@@ -310,6 +352,7 @@ pub unsafe extern "C" fn xr_begin_session(
             }
             lifecycle.running = true;
         }
+        s.link.begin();
         s.transition(
             id(session),
             &[
@@ -354,6 +397,7 @@ pub unsafe extern "C" fn xr_end_session(session: XrSession) -> XrResult {
             lifecycle.running = false;
         }
         *s.streamer.lock().unwrap_or_else(|e| e.into_inner()) = None;
+        s.link.end();
         s.transition(
             id(session),
             &[
@@ -385,10 +429,16 @@ pub unsafe extern "C" fn xr_wait_frame(
         if !s.is_running() {
             return Err(XrResult::XR_ERROR_SESSION_NOT_RUNNING);
         }
-        s.track_anchors(id(session));
-        s.track_focus(id(session));
+        let lost = s.track_loss(id(session));
+        if !lost {
+            s.track_anchors(id(session));
+            s.track_focus(id(session));
+        }
 
-        let period = (1e9 / system::refresh_rate() as f64) as i64;
+        let period = s
+            .link
+            .period_ns()
+            .unwrap_or((1e9 / f64::from(system::refresh_rate(None))) as i64);
         let deadline = {
             let mut f = s.frame.lock().unwrap_or_else(|e| e.into_inner());
             let now = now_ns();
@@ -406,10 +456,11 @@ pub unsafe extern "C" fn xr_wait_frame(
         }
         s.frame.lock().unwrap_or_else(|e| e.into_inner()).waited = true;
 
-        state.predictedDisplayTime = deadline + PIPELINE_LATENCY_NS;
+        // tetherd times the app's sound by the same latency, so picture and sound stay together.
+        state.predictedDisplayTime = deadline + s.link.latency_ns();
         state.predictedDisplayPeriod = period;
         state.shouldRender = s.is_visible() as u32;
-        OK
+        s.outcome(lost)
     })
 }
 
@@ -438,7 +489,8 @@ pub unsafe extern "C" fn xr_begin_frame(
             return Ok(XrResult::XR_FRAME_DISCARDED);
         }
         f.begun = true;
-        OK
+        drop(f);
+        s.outcome(s.link.lost())
     })
 }
 
@@ -463,6 +515,9 @@ pub unsafe extern "C" fn xr_end_frame(session: XrSession, info: *const XrFrameEn
         // SAFETY: the spec requires `layerCount` valid layer pointers.
         let layers: &[*const XrCompositionLayerBaseHeader] =
             unsafe { ffi::slice(info.layers, info.layerCount) }?;
+        if s.link.lost() {
+            return s.outcome(true);
+        }
         crate::frame::submit(&s, layers, info.displayTime)?;
         OK
     })

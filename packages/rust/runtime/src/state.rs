@@ -1,8 +1,6 @@
-//! Process-wide runtime state: one registry per handle type and the headset link.
+//! Process-wide runtime state: one registry per handle type.
 
-use std::sync::{Arc, LazyLock, OnceLock};
-
-use tether_stream::{Headset, UsbTransport};
+use std::sync::LazyLock;
 
 use crate::actions::{Action, ActionSet};
 use crate::handles::Registry;
@@ -22,18 +20,6 @@ pub struct Objects {
 }
 
 pub static OBJECTS: LazyLock<Objects> = LazyLock::new(Objects::default);
-
-/// The headset link, started with the first instance and kept for the life of the process.
-pub fn headset() -> &'static Arc<Headset> {
-    static HEADSET: OnceLock<Arc<Headset>> = OnceLock::new();
-    HEADSET.get_or_init(|| match UsbTransport::bind() {
-        Ok(transport) => Headset::start(Box::new(transport)),
-        Err(e) => {
-            crate::log!("USB listener unavailable ({e}); running without a headset");
-            Headset::detached()
-        }
-    })
-}
 
 #[macro_export]
 macro_rules! log {

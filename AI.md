@@ -23,11 +23,27 @@ the Quest client; Metal Shading Language for shaders; Swift only for the menu-ba
 app, never on a real-time path. Khronos's OpenXR SDK is a pinned submodule under
 `third_party/`, built by `scripts/openxr-sdk.sh` into `build/`.
 
-| Path                       | Crate / artifact       | What                                    |
-| -------------------------- | ---------------------- | --------------------------------------- |
-| `packages/rust/openxr-abi` | `tether-openxr-abi`    | OpenXR C types, generated from headers  |
-| `packages/rust/runtime`    | `libtether_runtime`    | The OpenXR runtime the loader loads     |
-| `third_party/OpenXR-SDK-Source` | —                 | Khronos loader, headers, `hello_xr`     |
+**The one Objective-C file** is `packages/rust/ipc/objc/TetherIPC.m`: the NSXPC
+`@protocol` between the runtime and `tetherd`, and a C function returning it, compiled
+by that crate's `build.rs`. `NSXPCInterface` accepts only protocol metadata emitted by
+clang. The file declares and never implements; every method lives in Rust. No other
+Objective-C enters the tree.
+
+| Path                            | Crate / artifact      | What                                           |
+| ------------------------------- | --------------------- | ---------------------------------------------- |
+| `packages/rust/openxr-abi`      | `tether-openxr-abi`   | OpenXR C types, generated from headers         |
+| `packages/rust/openxr-gen`      | `tether-openxr-gen`   | Generates the runtime's dispatch table         |
+| `packages/rust/runtime`         | `libtether_runtime`   | The OpenXR runtime the loader loads            |
+| `packages/rust/ipc`             | `tether-ipc`          | Runtime ↔ `tetherd`: NSXPC and shared memory   |
+| `packages/rust/protocol`        | `tether-protocol`     | Wire protocol, shared with the Quest client    |
+| `packages/rust/stream`          | `tether-stream`       | Link, clock sync, poses, compositor, encoder   |
+| `packages/rust/audiotap`        | `tether-audiotap`     | Core Audio process-tap capture for `tetherd`   |
+| `packages/rust/playout`         | `tether-playout`      | The headset's audio playout, host-testable     |
+| `packages/rust/fake-headset`    | `tether-fake-headset` | Scripted headset for tests                     |
+| `packages/rust/e2e`             | `tether-e2e`          | The end-to-end check behind `scripts/e2e.sh`   |
+| `apps/tetherd`                  | `tetherd`             | The per-user agent that owns the headset       |
+| `apps/quest`                    | `tether-quest`        | The Quest client                               |
+| `third_party/OpenXR-SDK-Source` | —                     | Khronos loader, headers, `hello_xr`            |
 
 ## Toolchain (required)
 

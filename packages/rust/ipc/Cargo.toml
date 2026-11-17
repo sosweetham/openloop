@@ -1,0 +1,25 @@
+[package]
+name = "tether-ipc"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "tether-ipc-test-service"
+path = "src/bin/test_service.rs"
+test = false
+doc = false
+
+[target.'cfg(target_os = "macos")'.dependencies]
+block2 = "0.6"
+libc = "0.2"
+objc2 = "0.6"
+objc2-foundation = "0.3"
+objc2-metal = "0.3"
+
+[build-dependencies]
+cc = "1"
+
+[lints]
+workspace = true

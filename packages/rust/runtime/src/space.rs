@@ -18,7 +18,7 @@ use crate::actions::{self, PoseKind};
 use crate::ffi::{self, OK};
 use crate::handles::{handle, id};
 use crate::session::{self, Session};
-use crate::state::{OBJECTS, headset};
+use crate::state::OBJECTS;
 use crate::{convert, system};
 
 /// Step for finite-difference velocities.
@@ -39,7 +39,7 @@ pub struct Space {
 pub fn pose_in_tracking(space: &Space, session: &Session, time: i64) -> Option<Rigid> {
     let origin = match space.kind {
         Kind::Reference(XrReferenceSpaceType::XR_REFERENCE_SPACE_TYPE_VIEW) => {
-            headset().state().head_at(time)
+            session.link.tracked().head_at(time)
         }
         Kind::Reference(XrReferenceSpaceType::XR_REFERENCE_SPACE_TYPE_LOCAL) => {
             session.local_anchor()
@@ -56,7 +56,7 @@ pub fn pose_in_tracking(space: &Space, session: &Session, time: i64) -> Option<R
         Kind::Action { .. } if !session.is_focused() => return None,
         Kind::Action { action, subaction } => {
             let (hand, kind) = actions::pose_binding(session, action, subaction)?;
-            let (grip, aim) = headset().state().hand_at(hand, time)?;
+            let (grip, aim) = session.link.tracked().hand_at(hand, time)?;
             match kind {
                 PoseKind::Grip => grip,
                 PoseKind::Aim => aim,
@@ -349,10 +349,8 @@ pub unsafe extern "C" fn xr_locate_views(
         }
         let base = lookup(info.space)?;
         let base_pose = pose_in_tracking(&base, &s, info.displayTime).unwrap_or(Rigid::IDENTITY);
-        let (head, eyes) = {
-            let headset = headset().state();
-            (headset.head_at(info.displayTime), headset.views())
-        };
+        let tracked = s.link.tracked();
+        let (head, eyes) = (tracked.head_at(info.displayTime), tracked.views());
         state.viewStateFlags = XR_VIEW_STATE_ORIENTATION_VALID_BIT
             | XR_VIEW_STATE_POSITION_VALID_BIT
             | XR_VIEW_STATE_ORIENTATION_TRACKED_BIT

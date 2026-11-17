@@ -10,6 +10,7 @@ mod frame;
 mod generated;
 mod handles;
 mod instance;
+mod link;
 mod negotiate;
 mod session;
 mod space;

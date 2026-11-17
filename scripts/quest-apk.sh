@@ -22,7 +22,7 @@ loader="$root/build/quest-loader/src/loader/libopenxr_loader.so"
 stage="$root/build/quest-apk"
 rm -rf "$stage"
 mkdir -p "$stage/lib/arm64-v8a"
-cp "$root/target/aarch64-linux-android/release/libtether_quest.so" "$loader" "$stage/lib/arm64-v8a/"
+cp "${CARGO_TARGET_DIR:-$root/target}/aarch64-linux-android/release/libtether_quest.so" "$loader" "$stage/lib/arm64-v8a/"
 
 "$build_tools/aapt2" link -o "$stage/unaligned.apk" --manifest "$root/apps/quest/AndroidManifest.xml" -I "$android_jar"
 (cd "$stage" && zip -qr unaligned.apk lib)

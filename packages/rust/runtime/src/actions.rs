@@ -16,14 +16,14 @@ use tether_openxr_abi::{
     XrInstance, XrInteractionProfileState, XrInteractionProfileSuggestedBinding, XrPath, XrResult,
     XrSession, XrSessionActionSetsAttachInfo, XrStructureType, XrTime, XrVector2f,
 };
-use tether_protocol::{ControllerState, Haptics, Message, button};
+use tether_protocol::{ControllerState, Haptics, button};
 use tether_stream::time::now_ns;
 
 use crate::ffi::{self, OK};
 use crate::handles::{handle, id};
 use crate::instance::{self, Instance};
 use crate::session::{self, Session};
-use crate::state::{OBJECTS, headset};
+use crate::state::OBJECTS;
 
 /// Profiles Tether can feed from Touch controllers, most specific first.
 const PROFILES: [&str; 3] = [
@@ -437,8 +437,8 @@ pub unsafe extern "C" fn xr_sync_actions(
         // returns XR_SESSION_NOT_FOCUSED), so apps stop drawing controllers they cannot locate.
         let focused = s.is_focused();
         let controllers = if focused {
-            let state = headset().state();
-            [state.controller(0), state.controller(1)]
+            let tracked = s.link.tracked();
+            [tracked.controller(0), tracked.controller(1)]
         } else {
             [None, None]
         };
@@ -727,12 +727,12 @@ pub unsafe extern "C" fn xr_apply_haptic_feedback(
             vibration.duration.max(0)
         };
         for hand in haptic_hands(&s, info)? {
-            headset().send(&Message::Haptics(Haptics {
+            s.link.haptic(Haptics {
                 hand: hand as u8,
                 amplitude: vibration.amplitude.clamp(0.0, 1.0),
                 duration_ns,
                 frequency: vibration.frequency,
-            }));
+            });
         }
         OK
     })
@@ -747,12 +747,7 @@ pub unsafe extern "C" fn xr_stop_haptic_feedback(
         // SAFETY: caller-provided pointer.
         let info = unsafe { ffi::read(info) }?;
         for hand in haptic_hands(&s, info)? {
-            headset().send(&Message::Haptics(Haptics {
-                hand: hand as u8,
-                amplitude: 0.0,
-                duration_ns: 0,
-                frequency: 0.0,
-            }));
+            s.link.stop_haptic(hand as u8);
         }
         OK
     })

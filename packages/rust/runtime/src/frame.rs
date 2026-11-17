@@ -1,28 +1,34 @@
-//! Turns a submitted projection layer into a pose-tagged video frame for the headset.
+//! Turns a submitted projection layer into a pose-tagged encoded frame for the headset. Until
+//! R2 S3 the app's process composites and encodes; `tetherd` takes each access unit from the
+//! session's shared ring and sends it.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use objc2_metal::MTLCommandQueue;
+use tether_ipc::records::AccessUnit;
 use tether_openxr_abi::{
     XrCompositionLayerBaseHeader, XrCompositionLayerProjection, XrCompositionLayerProjectionView,
     XrResult, XrStructureType,
 };
 use tether_protocol::{Message, VideoFrame, View};
 use tether_stream::compositor::{Compositor, EyeSource};
-use tether_stream::encoder::{Codec, Encoder, EncoderConfig, Pending};
+use tether_stream::encoder::{Codec, Encoded, Encoder, EncoderConfig, Pending};
 use tether_stream::time::now_ns;
+use tether_stream::{Headset, shared};
 
 use crate::convert;
 use crate::handles::id;
+use crate::link::{SessionLink, TetherdSession};
 use crate::session::Session;
-use crate::state::{OBJECTS, headset};
+use crate::state::OBJECTS;
 
 /// USB has bandwidth to spare; Wi-Fi will adapt this per link.
 const USB_BITRATE: u32 = 80_000_000;
 
 struct FrameMeta {
     index: u64,
+    /// On the headset's clock in-process; on the Mac's for `tetherd`, which maps it as it sends.
     display_time_ns: i64,
     views: [View; 2],
 }
@@ -32,8 +38,11 @@ pub struct Streamer {
     encoder: Arc<Encoder<FrameMeta>>,
     eye: (u32, u32),
     next_index: u64,
-    /// Set when VideoToolbox drops a frame, which breaks the reference chain.
+    /// Set when a frame is lost after encoding began (VideoToolbox dropped it, or `tetherd`'s
+    /// ring was full), which breaks the reference chain.
     needs_keyframe: Arc<AtomicBool>,
+    /// The session's keyframe request count last answered.
+    keyframe_requests: u64,
 }
 
 impl Streamer {
@@ -43,19 +52,14 @@ impl Streamer {
             crate::log!("compositor: {e:?}");
             XrResult::XR_ERROR_RUNTIME_FAILURE
         })?;
-        let (codec, fps) = {
-            let state = headset().state();
-            let profile = state.profile.as_ref();
-            let codec = if profile.is_none_or(|p| p.supports_hevc) {
-                Codec::Hevc
-            } else {
-                Codec::H264
-            };
-            (codec, profile.map_or(90.0, |p| p.refresh_rate))
+        let display = session.link.display();
+        let codec = if display.is_none_or(|(_, hevc)| hevc) {
+            Codec::Hevc
+        } else {
+            Codec::H264
         };
+        let fps = crate::system::refresh_rate(display.map(|(rate, _)| rate));
         let needs_keyframe = Arc::new(AtomicBool::new(true));
-        let sink_headset = headset().clone();
-        let sink_flag = needs_keyframe.clone();
         let config = EncoderConfig {
             codec,
             width: eye.0 * 2,
@@ -64,21 +68,13 @@ impl Streamer {
             bitrate: USB_BITRATE,
             low_latency: false,
         };
-        let encoder = Encoder::new(
-            config,
-            move |out: Option<tether_stream::encoder::Encoded<FrameMeta>>| match out {
-                Some(e) => {
-                    sink_headset.send(&Message::VideoFrame(VideoFrame {
-                        frame_index: e.meta.index,
-                        display_time_ns: e.meta.display_time_ns,
-                        keyframe: e.keyframe,
-                        views: e.meta.views,
-                        data: e.data,
-                    }));
-                }
-                None => sink_flag.store(true, Ordering::Release),
-            },
-        )
+        let sink = Sink::of(&session.link, (config.width, config.height));
+        let lost = needs_keyframe.clone();
+        let encoder = Encoder::new(config, move |out: Option<Encoded<FrameMeta>>| {
+            if !out.is_some_and(|encoded| sink.send(encoded)) {
+                lost.store(true, Ordering::Release);
+            }
+        })
         .map_err(|e| {
             crate::log!("encoder: {e:?}");
             XrResult::XR_ERROR_RUNTIME_FAILURE
@@ -90,11 +86,67 @@ impl Streamer {
             eye,
             next_index: 0,
             needs_keyframe,
+            keyframe_requests: session.link.status().keyframe_requests,
         })
     }
 }
 
-/// Streams the frame's projection layer if a headset is connected. Other layer types are
+/// Where encoded frames go.
+enum Sink {
+    Headset(Arc<Headset>),
+    Tetherd {
+        session: Arc<TetherdSession>,
+        video: (u32, u32),
+    },
+}
+
+impl Sink {
+    fn of(link: &SessionLink, video: (u32, u32)) -> Sink {
+        match link {
+            SessionLink::InProcess(headset) => Sink::Headset(headset.clone()),
+            SessionLink::Tetherd(session) => Sink::Tetherd {
+                session: session.clone(),
+                video,
+            },
+        }
+    }
+
+    /// `false` when the frame was lost on the way.
+    fn send(&self, encoded: Encoded<FrameMeta>) -> bool {
+        let meta = encoded.meta;
+        match self {
+            Sink::Headset(headset) => {
+                headset.send(&Message::VideoFrame(VideoFrame {
+                    frame_index: meta.index,
+                    display_time_ns: meta.display_time_ns,
+                    keyframe: encoded.keyframe,
+                    views: meta.views,
+                    data: encoded.data,
+                }));
+                true
+            }
+            Sink::Tetherd { session, video } => {
+                let unit = AccessUnit {
+                    frame_index: meta.index,
+                    display_mac_ns: meta.display_time_ns,
+                    encoded_mac_ns: now_ns(),
+                    views: meta.views.map(|v| shared::record_view(&v)),
+                    width: video.0,
+                    height: video.1,
+                    flags: if encoded.keyframe {
+                        AccessUnit::KEYFRAME
+                    } else {
+                        0
+                    },
+                    len: 0,
+                };
+                session.push_access_unit(&unit, &encoded.data)
+            }
+        }
+    }
+}
+
+/// Streams the frame's projection layer if a headset is ready for video. Other layer types are
 /// accepted and not yet composited.
 pub fn submit(
     session: &Session,
@@ -119,11 +171,17 @@ pub fn submit(
         return Err(XrResult::XR_ERROR_VALIDATION_FAILURE);
     };
 
-    let (connected, clock_to_client) = {
-        let state = headset().state();
-        (state.connected(), state.clock.to_client(display_time))
-    };
-    if !connected {
+    let status = session.link.status();
+    if !status.linked {
+        // Whatever the headset decoded before the link went is gone with it.
+        if let Some(streamer) = session
+            .streamer
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+        {
+            streamer.needs_keyframe.store(true, Ordering::Release);
+        }
         return Ok(());
     }
 
@@ -162,22 +220,36 @@ pub fn submit(
     });
 
     let mut streamer = session.streamer.lock().unwrap_or_else(|e| e.into_inner());
-    if streamer.as_ref().is_none_or(|s| s.eye != eye) {
+    let Some(streamer) = streamer.as_mut().filter(|s| s.eye == eye) else {
+        // Building the compositor and encoder takes about 100 ms, so this frame's display time
+        // has passed; the next one, predicted after the stall, starts the stream.
         *streamer = Some(Streamer::new(session, eye)?);
-    }
-    let streamer = streamer.as_mut().expect("just created");
+        return Ok(());
+    };
 
-    let video = (eye.0 * 2, eye.1);
-    let new_stream = headset().state().video_size != Some(video);
-    if new_stream {
-        headset().announce_video_size(video.0, video.1);
-    }
-    let requested = std::mem::take(&mut headset().state().keyframe_requested);
-    let keyframe = new_stream || requested || streamer.needs_keyframe.swap(false, Ordering::AcqRel);
+    let (display_time_ns, requested) = match &session.link {
+        SessionLink::InProcess(headset) => {
+            let video = (eye.0 * 2, eye.1);
+            let new_stream = headset.state().video_size != Some(video);
+            if new_stream {
+                headset.announce_video_size(video.0, video.1);
+            }
+            let mut state = headset.state();
+            let requested = std::mem::take(&mut state.keyframe_requested) || new_stream;
+            (state.clock.to_client(display_time), requested)
+        }
+        SessionLink::Tetherd(_) => {
+            let requests = status.keyframe_requests;
+            let requested = requests != streamer.keyframe_requests;
+            streamer.keyframe_requests = requests;
+            (display_time, requested)
+        }
+    };
+    let keyframe = requested || streamer.needs_keyframe.swap(false, Ordering::AcqRel);
 
     let meta = FrameMeta {
         index: streamer.next_index,
-        display_time_ns: clock_to_client,
+        display_time_ns,
         views: tracked_views,
     };
     streamer.next_index += 1;

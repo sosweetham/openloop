@@ -1,6 +1,8 @@
 //! Tether's headset client for Meta Quest. See `docs/ARCHITECTURE.md` § Quest client.
 #![cfg(target_os = "android")]
 
+mod aaudio;
+mod audio;
 mod decoder;
 mod egl;
 mod headset;

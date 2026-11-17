@@ -20,7 +20,9 @@ libc = "0.2"
 log = "0.4"
 ndk = { version = "0.9", features = ["media", "api-level-29"] }
 ndk-context = "0.1"
+ndk-sys = { version = "0.6", features = ["audio"] }
 openxr = { version = "0.22", features = ["loaded"] }
+tether-playout = { path = "../../packages/rust/playout" }
 tether-protocol = { path = "../../packages/rust/protocol" }
 
 [lints]

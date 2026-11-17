@@ -35,6 +35,16 @@ impl ClockSync {
         self.best.is_some()
     }
 
+    /// `client - mac`, in nanoseconds; 0 before the first pong.
+    pub fn offset_ns(&self) -> i64 {
+        self.offset()
+    }
+
+    /// The round trip the current offset came from: the offset is good to half of it.
+    pub fn round_trip_ns(&self) -> Option<i64> {
+        self.best.map(|(round_trip, _)| round_trip)
+    }
+
     pub fn to_mac(&self, client_ns: i64) -> i64 {
         client_ns - self.offset()
     }
