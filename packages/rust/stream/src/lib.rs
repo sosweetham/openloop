@@ -10,7 +10,9 @@ pub mod link;
 pub mod pose;
 #[cfg(target_os = "macos")]
 pub mod shared;
+pub mod stats;
 pub mod time;
+pub mod video;
 
 pub use headset::{Change, Headset, HeadsetState, Observer, PIPELINE_LATENCY_NS, Tracked};
 pub use link::{Link, Transport, UsbTransport};

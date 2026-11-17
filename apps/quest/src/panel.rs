@@ -12,9 +12,10 @@ use crate::ui::Canvas;
 
 const GL_SRGB8_ALPHA8: u32 = 0x8C43;
 
-// The canvas is premultiplied and its rows run top-down; GL textures run bottom-up.
+// The canvas is premultiplied and its rows run top-down; GL textures run bottom-up. highp, since
+// mediump (fp16 on Adreno) cannot address 1600 texels one by one.
 const FRAGMENT: &str = r#"#version 300 es
-precision mediump float;
+precision highp float;
 uniform sampler2D u_canvas;
 in vec2 v_pos;
 out vec4 color;

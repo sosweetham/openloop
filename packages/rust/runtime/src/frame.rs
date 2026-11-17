@@ -3,7 +3,7 @@
 //! session's shared ring and sends it.
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use objc2_metal::MTLCommandQueue;
 use tether_ipc::records::AccessUnit;
@@ -14,8 +14,9 @@ use tether_openxr_abi::{
 use tether_protocol::{Message, VideoFrame, View};
 use tether_stream::compositor::{Compositor, EyeSource};
 use tether_stream::encoder::{Codec, Encoded, Encoder, EncoderConfig, Pending};
+use tether_stream::stats::Histogram;
 use tether_stream::time::now_ns;
-use tether_stream::{Headset, shared};
+use tether_stream::{Headset, shared, video};
 
 use crate::convert;
 use crate::handles::id;
@@ -23,35 +24,66 @@ use crate::link::{SessionLink, TetherdSession};
 use crate::session::Session;
 use crate::state::OBJECTS;
 
-/// USB has bandwidth to spare; Wi-Fi will adapt this per link.
-const USB_BITRATE: u32 = 80_000_000;
-
 struct FrameMeta {
     index: u64,
     /// On the headset's clock in-process; on the Mac's for `tetherd`, which maps it as it sends.
     display_time_ns: i64,
     views: [View; 2],
+    /// When the frame was handed to the compositor, and when the GPU finished composing it,
+    /// on the Mac's clock.
+    submitted_ns: i64,
+    composed_ns: i64,
+}
+
+/// What became of a stream's frames, recorded on the frame path and logged when it ends.
+#[derive(Default)]
+struct StreamStats {
+    /// Every compositor slot was still in flight.
+    dropped_before_encode: AtomicU64,
+    /// VideoToolbox dropped the frame, or `tetherd`'s ring had no room for it.
+    lost_after_encode: AtomicU64,
+    /// From `xrEndFrame` to the composed frame: the app's GPU work still queued, then the
+    /// compositor's.
+    compose: Histogram,
+    /// From the composed frame to its access unit: VideoToolbox alone.
+    encode: Histogram,
 }
 
 pub struct Streamer {
     compositor: Compositor,
     encoder: Arc<Encoder<FrameMeta>>,
-    eye: (u32, u32),
+    /// The app's eye rects, the larger of the two per axis; another size rebuilds the stream.
+    source: (u32, u32),
+    /// Both encoded eyes side by side.
+    video: (u32, u32),
     next_index: u64,
     /// Set when a frame is lost after encoding began (VideoToolbox dropped it, or `tetherd`'s
     /// ring was full), which breaks the reference chain.
     needs_keyframe: Arc<AtomicBool>,
     /// The session's keyframe request count last answered.
     keyframe_requests: u64,
+    stats: Arc<StreamStats>,
+}
+
+impl Drop for Streamer {
+    fn drop(&mut self) {
+        let s = &self.stats;
+        crate::log!(
+            "stream {}x{} ended: {} frames encoded, {} dropped before encode, {} lost after; \
+             end frame to composed {}; encode {}",
+            self.video.0,
+            self.video.1,
+            s.encode.count(),
+            s.dropped_before_encode.load(Ordering::Relaxed),
+            s.lost_after_encode.load(Ordering::Relaxed),
+            s.compose.summary(),
+            s.encode.summary()
+        );
+    }
 }
 
 impl Streamer {
-    fn new(session: &Session, eye: (u32, u32)) -> Result<Self, XrResult> {
-        let device = session.queue.0.device();
-        let compositor = Compositor::new(&device, eye.0, eye.1).map_err(|e| {
-            crate::log!("compositor: {e:?}");
-            XrResult::XR_ERROR_RUNTIME_FAILURE
-        })?;
+    fn new(session: &Session, source: (u32, u32)) -> Result<Self, XrResult> {
         let display = session.link.display();
         let codec = if display.is_none_or(|(_, hevc)| hevc) {
             Codec::Hevc
@@ -59,34 +91,59 @@ impl Streamer {
             Codec::H264
         };
         let fps = crate::system::refresh_rate(display.map(|(rate, _)| rate));
+        let eye = video::encode_eye(source, fps);
+        let device = session.queue.0.device();
+        let compositor = Compositor::new(&device, source, eye).map_err(|e| {
+            crate::log!("compositor: {e:?}");
+            XrResult::XR_ERROR_RUNTIME_FAILURE
+        })?;
         let needs_keyframe = Arc::new(AtomicBool::new(true));
         let config = EncoderConfig {
             codec,
             width: eye.0 * 2,
             height: eye.1,
             fps,
-            bitrate: USB_BITRATE,
+            bitrate: video::USB_BITRATE,
             low_latency: false,
         };
         let sink = Sink::of(&session.link, (config.width, config.height));
         let lost = needs_keyframe.clone();
+        let stats = Arc::new(StreamStats::default());
+        let recorded = stats.clone();
         let encoder = Encoder::new(config, move |out: Option<Encoded<FrameMeta>>| {
+            if let Some(encoded) = &out {
+                let meta = &encoded.meta;
+                recorded
+                    .compose
+                    .record(meta.composed_ns - meta.submitted_ns);
+                recorded.encode.record(now_ns() - meta.composed_ns);
+            }
             if !out.is_some_and(|encoded| sink.send(encoded)) {
                 lost.store(true, Ordering::Release);
+                recorded.lost_after_encode.fetch_add(1, Ordering::Relaxed);
             }
         })
         .map_err(|e| {
             crate::log!("encoder: {e:?}");
             XrResult::XR_ERROR_RUNTIME_FAILURE
         })?;
-        crate::log!("streaming {}x{} {codec:?} @ {fps} Hz", eye.0 * 2, eye.1);
+        crate::log!(
+            "streaming {}x{} {codec:?} @ {fps} Hz at {} Mbps from {}x{} eyes",
+            config.width,
+            config.height,
+            config.bitrate / 1_000_000,
+            source.0,
+            source.1
+        );
         Ok(Self {
             compositor,
             encoder: Arc::new(encoder),
-            eye,
+            source,
+            video: (config.width, config.height),
             next_index: 0,
             needs_keyframe,
             keyframe_requests: session.link.status().keyframe_requests,
+            stats,
         })
     }
 }
@@ -210,26 +267,28 @@ pub fn submit(
         let r = v.subImage.imageRect;
         [r.offset.x, r.offset.y, r.extent.width, r.extent.height]
     };
-    let eye = (
-        (left.subImage.imageRect.extent.width as u32) & !1,
-        (left.subImage.imageRect.extent.height as u32) & !1,
-    );
+    let extent = |v: &XrCompositionLayerProjectionView| {
+        let e = v.subImage.imageRect.extent;
+        (e.width.max(1) as u32, e.height.max(1) as u32)
+    };
+    let (l, r) = (extent(left), extent(right));
+    let source = (l.0.max(r.0), l.1.max(r.1));
     let tracked_views = [left, right].map(|v| View {
         pose: (space_pose * convert::rigid(&v.pose)).to_pose(),
         fov: convert::fov(&v.fov),
     });
 
     let mut streamer = session.streamer.lock().unwrap_or_else(|e| e.into_inner());
-    let Some(streamer) = streamer.as_mut().filter(|s| s.eye == eye) else {
+    let Some(streamer) = streamer.as_mut().filter(|s| s.source == source) else {
         // Building the compositor and encoder takes about 100 ms, so this frame's display time
         // has passed; the next one, predicted after the stall, starts the stream.
-        *streamer = Some(Streamer::new(session, eye)?);
+        *streamer = Some(Streamer::new(session, source)?);
         return Ok(());
     };
 
     let (display_time_ns, requested) = match &session.link {
         SessionLink::InProcess(headset) => {
-            let video = (eye.0 * 2, eye.1);
+            let video = streamer.video;
             let new_stream = headset.state().video_size != Some(video);
             if new_stream {
                 headset.announce_video_size(video.0, video.1);
@@ -251,6 +310,8 @@ pub fn submit(
         index: streamer.next_index,
         display_time_ns,
         views: tracked_views,
+        submitted_ns: now_ns(),
+        composed_ns: 0,
     };
     streamer.next_index += 1;
     let encoder = streamer.encoder.clone();
@@ -268,6 +329,10 @@ pub fn submit(
     ];
     let queue: &objc2::runtime::ProtocolObject<dyn MTLCommandQueue> = &session.queue.0;
     let composed = streamer.compositor.compose(queue, eyes, move |slot| {
+        let meta = FrameMeta {
+            composed_ns: now_ns(),
+            ..meta
+        };
         let release = slot.clone();
         encoder.encode(
             &slot.pixel_buffer,
@@ -279,8 +344,14 @@ pub fn submit(
             },
         );
     });
-    if !composed && keyframe {
-        streamer.needs_keyframe.store(true, Ordering::Release);
+    if !composed {
+        streamer
+            .stats
+            .dropped_before_encode
+            .fetch_add(1, Ordering::Relaxed);
+        if keyframe {
+            streamer.needs_keyframe.store(true, Ordering::Release);
+        }
     }
     Ok(())
 }

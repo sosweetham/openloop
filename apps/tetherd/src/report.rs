@@ -10,6 +10,7 @@ use std::sync::atomic::Ordering;
 
 use tether_ipc::records::AccessUnit;
 use tether_stream::PIPELINE_LATENCY_NS;
+use tether_stream::stats::Histogram;
 
 use crate::audio::Tally;
 use crate::log::{file_stamp, unix_time};
@@ -35,6 +36,11 @@ pub struct SessionReport {
     background: u64,
     not_running: u64,
     keyframes_requested: u64,
+    /// Frame indices the app's stream skipped: frames lost before they reached `tetherd`.
+    index_gaps: u64,
+    last_index: Option<u64>,
+    /// From each frame's start (its `xrWaitFrame` deadline) to its encoded access unit.
+    start_to_encoded: Histogram,
     haptics: u64,
     audio_pid: Option<i32>,
     audio: serde_json::Value,
@@ -62,6 +68,9 @@ impl SessionReport {
             background: 0,
             not_running: 0,
             keyframes_requested: 0,
+            index_gaps: 0,
+            last_index: None,
+            start_to_encoded: Histogram::default(),
             haptics: 0,
             audio_pid: session.audio_pid,
             audio: serde_json::Value::Null,
@@ -70,6 +79,14 @@ impl SessionReport {
     }
 
     pub fn access_unit(&mut self, unit: &AccessUnit, outcome: Forwarded) {
+        // A lower index is a new stream from the app: its encoder starts again at 0.
+        if let Some(last) = self.last_index.filter(|&last| unit.frame_index > last) {
+            self.index_gaps += unit.frame_index - last - 1;
+        }
+        self.last_index = Some(unit.frame_index);
+        let start_mac_ns = unit.display_mac_ns.saturating_sub(PIPELINE_LATENCY_NS);
+        self.start_to_encoded
+            .record(unit.encoded_mac_ns.saturating_sub(start_mac_ns));
         match outcome {
             Forwarded::Sent => {
                 self.frames_sent += 1;
@@ -137,6 +154,12 @@ impl SessionReport {
                     "not_running": self.not_running,
                 },
                 "keyframes_requested_from_app": self.keyframes_requested,
+                "lost_before_tetherd": self.index_gaps,
+                "frame_start_to_encoded_ms": {
+                    "p50": self.start_to_encoded.quantile_ms(0.5),
+                    "p95": self.start_to_encoded.quantile_ms(0.95),
+                    "max": self.start_to_encoded.max_ms(),
+                },
             },
             "haptics_sent": self.haptics,
             "audio": self.audio,

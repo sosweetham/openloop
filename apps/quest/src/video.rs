@@ -62,8 +62,10 @@ impl VideoTexture {
         }
     }
 
-    /// Points the texture at `image`, releasing the previous one.
-    pub fn bind(&mut self, gl: &glow::Context, image: Image) -> Result<(), String> {
+    /// Points the texture at `image`, releasing the previous one. Returns where the decoded
+    /// picture lies in the texture.
+    pub fn bind(&mut self, gl: &glow::Context, image: Image) -> Result<[f32; 4], String> {
+        let picture = picture(&image);
         let buffer = image
             .hardware_buffer()
             .map_err(|e| format!("hardware buffer: {e:?}"))?;
@@ -101,8 +103,30 @@ impl VideoTexture {
             // SAFETY: the old EGLImage is no longer bound to the texture.
             unsafe { (self.destroy_image)(self.display, old) };
         }
-        Ok(())
+        Ok(picture)
     }
+}
+
+/// The decoded picture as `[u, v, width, height]` of the image's texture: MediaCodec's crop, when
+/// it pads the picture out to whole coding blocks, or the whole image. An external texture spans
+/// the whole buffer, crop or not.
+fn picture(image: &Image) -> [f32; 4] {
+    const WHOLE: [f32; 4] = [0.0, 0.0, 1.0, 1.0];
+    let (Ok(w), Ok(h), Ok(crop)) = (image.width(), image.height(), image.crop_rect()) else {
+        return WHOLE;
+    };
+    let inside = 0 <= crop.left && crop.left < crop.right && crop.right <= w;
+    let within = 0 <= crop.top && crop.top < crop.bottom && crop.bottom <= h;
+    if !(inside && within) {
+        return WHOLE;
+    }
+    let (w, h) = (w as f32, h as f32);
+    [
+        crop.left as f32 / w,
+        crop.top as f32 / h,
+        (crop.right - crop.left) as f32 / w,
+        (crop.bottom - crop.top) as f32 / h,
+    ]
 }
 
 impl Drop for VideoTexture {

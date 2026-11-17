@@ -5,7 +5,7 @@ use std::path::Path;
 use std::process::ExitStatus;
 
 use serde::Deserialize;
-use tether_stream::PIPELINE_LATENCY_NS;
+use tether_stream::{PIPELINE_LATENCY_NS, video};
 
 use crate::harness;
 
@@ -420,9 +420,13 @@ fn link_held(r: &Report) -> Check {
     )
 }
 
-/// Both eyes side by side, at the size the runtime recommends for the profile.
+/// Both eyes side by side: the eyes the runtime asks the app to render for the profile, at the
+/// size the encoder sustains at the profile's refresh rate.
 fn expected_video_size(p: &Profile) -> (u32, u32) {
-    ((p.eye_width & !1) * 2, p.eye_height & !1)
+    let scale = video::render_scale(std::env::var_os(video::RENDER_SCALE_VAR).as_deref());
+    let app = video::render_eye((p.eye_width, p.eye_height), scale);
+    let (w, h) = video::encode_eye(app, p.refresh_rate);
+    (w * 2, h)
 }
 
 fn stream_started(r: &Report) -> Check {
@@ -561,7 +565,7 @@ mod tests {
 
     /// Ten seconds of 90 Hz video in one stream, as a healthy run reports it.
     fn healthy() -> serde_json::Value {
-        serde_json::json!({
+        let mut r = serde_json::json!({
             "passed": true,
             "duration_s": 10.03,
             "profile": { "name": "Fake Quest 3", "eye_width": 1680, "eye_height": 1760, "refresh_rate": 90.0 },
@@ -579,7 +583,15 @@ mod tests {
             "keyframe_requests": [{ "at_s": 0.12, "reason": "stream_start", "answered_after_frames": 1 }],
             "clock_pings": { "answered": 40 },
             "error_count": 0, "errors": [], "warning_count": 0, "warnings": []
-        })
+        });
+        let profile: Profile = serde_json::from_value(r["profile"].clone()).unwrap();
+        let (w, h) = expected_video_size(&profile);
+        for path in ["/server_hellos/0", "/video/streams/0"] {
+            let size = r.pointer_mut(path).unwrap();
+            size["video_width"] = w.into();
+            size["video_height"] = h.into();
+        }
+        r
     }
 
     fn failures(report: serde_json::Value) -> Vec<String> {
@@ -594,6 +606,16 @@ mod tests {
     #[test]
     fn a_healthy_run_passes() {
         assert_eq!(failures(healthy()), Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_stream_of_another_size_fails() {
+        let mut r = healthy();
+        r["server_hellos"][0]["video_width"] = 2352.into();
+        r["server_hellos"][0]["video_height"] = 2464.into();
+        let failed = failures(r);
+        assert_eq!(failed.len(), 1, "{failed:?}");
+        assert!(failed[0].contains("stream starts within"), "{failed:?}");
     }
 
     #[test]

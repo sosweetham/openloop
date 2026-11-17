@@ -13,6 +13,7 @@ use tether_openxr_abi::{
     XrViewConfigurationProperties, XrViewConfigurationType, XrViewConfigurationView,
 };
 use tether_protocol::DeviceProfile;
+use tether_stream::video;
 
 use crate::ffi::{self, OK};
 use crate::instance::lookup;
@@ -25,10 +26,21 @@ const DEFAULT_EYE: (u32, u32) = (1680, 1760);
 const DEFAULT_REFRESH: f32 = 90.0;
 const MAX_EYE: u32 = 4096;
 
-/// Recommended per-eye size, rounded down to even for 4:2:0 encoding.
+/// The size apps are asked to render each eye at: the headset's own recommendation scaled by
+/// the render scale, which the compositor filters back down to what is encoded.
 fn eye_size(profile: Option<&DeviceProfile>) -> (u32, u32) {
-    let (w, h) = profile.map_or(DEFAULT_EYE, |p| (p.eye_width, p.eye_height));
-    (w & !1, h & !1)
+    let recommended = profile.map_or(DEFAULT_EYE, |p| (p.eye_width, p.eye_height));
+    let (w, h) = video::render_eye(recommended, render_scale());
+    (w.min(MAX_EYE), h.min(MAX_EYE))
+}
+
+fn render_scale() -> f32 {
+    static SCALE: OnceLock<f32> = OnceLock::new();
+    *SCALE.get_or_init(|| {
+        let scale = video::render_scale(std::env::var_os(video::RENDER_SCALE_VAR).as_deref());
+        crate::log!("render scale {scale}");
+        scale
+    })
 }
 
 /// The headset's refresh rate, or the default before one connects; never below 1 Hz.

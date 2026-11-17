@@ -1,9 +1,11 @@
-//! VideoToolbox encoding configured for latency first: real-time mode, no frame reordering,
-//! speed over quality, keyframes only on demand. Output is Annex-B with parameter sets on every
-//! keyframe so the headset can join or recover at any keyframe.
+//! VideoToolbox encoding configured for latency first: no frame reordering, speed over quality,
+//! keyframes only on demand. Output is Annex-B with parameter sets on every keyframe so the
+//! headset can join or recover at any keyframe. The measurements behind each setting are in
+//! docs/ARCHITECTURE.md § Video quality.
 
 use std::ffi::c_void;
 use std::ptr::{self, NonNull};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use objc2_core_foundation::{CFBoolean, CFDictionary, CFNumber, CFRetained, CFString, CFType};
 use objc2_core_media::{
@@ -15,6 +17,7 @@ use objc2_core_media::{
 use objc2_core_video::{
     CVPixelBuffer, kCVImageBufferColorPrimaries_ITU_R_709_2,
     kCVImageBufferTransferFunction_ITU_R_709_2, kCVImageBufferYCbCrMatrix_ITU_R_709_2,
+    kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
 };
 use objc2_video_toolbox::{
     VTCompressionSession, VTEncodeInfoFlags, VTSessionSetProperty,
@@ -23,9 +26,10 @@ use objc2_video_toolbox::{
     kVTCompressionPropertyKey_MaxKeyFrameInterval,
     kVTCompressionPropertyKey_PrioritizeEncodingSpeedOverQuality,
     kVTCompressionPropertyKey_ProfileLevel, kVTCompressionPropertyKey_RealTime,
-    kVTCompressionPropertyKey_TransferFunction, kVTCompressionPropertyKey_YCbCrMatrix,
-    kVTEncodeFrameOptionKey_ForceKeyFrame, kVTProfileLevel_H264_High_AutoLevel,
-    kVTProfileLevel_HEVC_Main_AutoLevel,
+    kVTCompressionPropertyKey_SpatialAdaptiveQPLevel, kVTCompressionPropertyKey_TransferFunction,
+    kVTCompressionPropertyKey_YCbCrMatrix, kVTEncodeFrameOptionKey_ForceKeyFrame,
+    kVTProfileLevel_H264_High_AutoLevel, kVTProfileLevel_HEVC_Main_AutoLevel,
+    kVTQPModulationLevel_Disable,
     kVTVideoEncoderSpecification_EnableHardwareAcceleratedVideoEncoder,
     kVTVideoEncoderSpecification_EnableLowLatencyRateControl,
 };
@@ -88,6 +92,9 @@ pub struct Encoder<M> {
     // Boxed so the callback's refcon stays valid for the session's lifetime.
     context: Box<Context<M>>,
     pub config: EncoderConfig,
+    /// The warm-up frame took the session's first keyframe, so the first frame encoded after it
+    /// is forced to be one, as a new session's first frame always is.
+    first: AtomicBool,
 }
 
 // SAFETY: VTCompressionSession accepts encode calls from any thread; the sink is Send + Sync.
@@ -122,8 +129,19 @@ impl<M: Send + 'static> Encoder<M> {
                 Codec::Hevc => kVTProfileLevel_HEVC_Main_AutoLevel,
                 Codec::H264 => kVTProfileLevel_H264_High_AutoLevel,
             };
-            set(kVTCompressionPropertyKey_RealTime, yes.as_ref());
+            // In real-time mode VideoToolbox slows itself to the frame rate after about 3 s of a
+            // stream: ~16 ms a frame from then on, against ~8.5 ms without it. The app paces
+            // the frames, and the compositor's slots bound what can queue.
+            set(kVTCompressionPropertyKey_RealTime, no.as_ref());
             set(kVTCompressionPropertyKey_AllowFrameReordering, no.as_ref());
+            // Adaptive QP moves bits from detail to flat areas; off, edges and text keep them.
+            // Low-latency rate control has none and rejects the property.
+            if !config.low_latency {
+                set(
+                    kVTCompressionPropertyKey_SpatialAdaptiveQPLevel,
+                    CFNumber::new_i32(kVTQPModulationLevel_Disable).as_ref(),
+                );
+            }
             set(
                 kVTCompressionPropertyKey_PrioritizeEncodingSpeedOverQuality,
                 yes.as_ref(),
@@ -156,11 +174,42 @@ impl<M: Send + 'static> Encoder<M> {
             );
             session.prepare_to_encode_frames();
         }
-        Ok(Self {
+        let encoder = Self {
             session,
             context,
             config,
-        })
+            first: AtomicBool::new(true),
+        };
+        encoder.warm_up();
+        Ok(encoder)
+    }
+
+    /// Encodes one blank frame and drops it. A session's first frame takes several frame
+    /// periods (70 ms at 3552x1856 on an M3 Max), and the frames behind it queue past the
+    /// compositor's slots; here it is paid while the stream is set up instead.
+    fn warm_up(&self) {
+        let Ok(blank) = crate::compositor::iosurface_pixel_buffer(
+            self.config.width,
+            self.config.height,
+            kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+        ) else {
+            return;
+        };
+        // SAFETY: valid session and buffer. A null source refcon tells `output` to drop the
+        // frame; its time is before any stream's first.
+        unsafe {
+            let status = self.session.encode_frame(
+                &blank,
+                CMTime::new(-1, 1),
+                CMTime::new(0, 0),
+                None,
+                ptr::null_mut(),
+                ptr::null_mut(),
+            );
+            if status == 0 {
+                self.session.complete_frames(CMTime::new(0, 0));
+            }
+        }
     }
 
     fn create(
@@ -202,6 +251,7 @@ impl<M: Send + 'static> Encoder<M> {
     }
 
     pub fn encode(&self, frame: &CVPixelBuffer, time_ns: i64, keyframe: bool, pending: Pending<M>) {
+        let keyframe = self.first.swap(false, Ordering::Relaxed) || keyframe;
         let yes = CFBoolean::new(true);
         // SAFETY: static CFString key.
         let props = keyframe.then(|| {
@@ -246,6 +296,9 @@ unsafe extern "C-unwind" fn output<M>(
     _flags: VTEncodeInfoFlags,
     sample: *mut CMSampleBuffer,
 ) {
+    if source.is_null() {
+        return;
+    }
     // SAFETY: `refcon` is the Encoder's boxed context; `source` is the Pending leaked in `encode`.
     let context = unsafe { &*(refcon as *const Context<M>) };
     let Pending { meta, release } = *unsafe { Box::from_raw(source as *mut Pending<M>) };

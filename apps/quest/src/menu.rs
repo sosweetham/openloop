@@ -45,18 +45,21 @@ impl Shape {
 pub enum Command {
     Recenter,
     TogglePassthrough,
+    ToggleSharpening,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Item {
     Recenter,
     Passthrough,
+    Sharpening,
     Close,
 }
 
-const ITEMS: [(Item, &str); 3] = [
+const ITEMS: [(Item, &str); 4] = [
     (Item::Recenter, "Recenter view"),
     (Item::Passthrough, "Passthrough"),
+    (Item::Sharpening, "Sharpening"),
     (Item::Close, "Close"),
 ];
 
@@ -65,6 +68,8 @@ pub struct Status {
     pub connected: bool,
     pub video: Option<(u32, u32)>,
     pub passthrough: bool,
+    /// Whether the headset's compositor sharpens the stream; `None` where it cannot.
+    pub sharpening: Option<bool>,
 }
 
 #[derive(Default)]
@@ -193,8 +198,9 @@ impl Menu {
                     out.command = Some(Command::Recenter);
                     self.close();
                 }
-                // Stays open so the room can be checked and passthrough switched back off.
+                // Both stay open so the result can be seen and switched back.
                 Item::Passthrough => out.command = Some(Command::TogglePassthrough),
+                Item::Sharpening => out.command = Some(Command::ToggleSharpening),
                 Item::Close => self.close(),
             }
         }
@@ -235,17 +241,24 @@ impl Menu {
         };
         c.text(56.0, 138.0, 26.0, &status_line, MUTED);
         for (index, (item, label)) in ITEMS.iter().enumerate() {
-            let (x, y, bw, bh) = button_rect(index);
-            let on = *item == Item::Passthrough && status.passthrough;
+            let (x, y, bw, bh) = button_rect(*item);
+            let on = match item {
+                Item::Passthrough => status.passthrough,
+                Item::Sharpening => status.sharpening == Some(true),
+                _ => false,
+            };
             let fill = match (self.hover == Some(index), on) {
                 (true, _) => [56, 108, 224, 255],
                 (false, true) => [40, 140, 106, 255],
                 (false, false) => [42, 47, 56, 255],
             };
             c.rounded_rect(x, y, bw, bh, 22.0, fill);
-            let label = match *item {
-                Item::Passthrough if on => "Passthrough  ·  on",
-                Item::Passthrough => "Passthrough  ·  off",
+            let label = match (item, on) {
+                (Item::Passthrough, true) => "Passthrough  ·  on",
+                (Item::Passthrough, false) => "Passthrough  ·  off",
+                (Item::Sharpening, true) => "Sharpening  ·  on",
+                (Item::Sharpening, false) if status.sharpening.is_none() => "Sharpening  ·  n/a",
+                (Item::Sharpening, false) => "Sharpening  ·  off",
                 _ => label,
             };
             c.text(x + 36.0, y + 58.0, 36.0, label, WHITE);
@@ -320,13 +333,22 @@ impl Menu {
     }
 }
 
-fn button_rect(index: usize) -> (f32, f32, f32, f32) {
-    (56.0, 176.0 + index as f32 * 104.0, LAYOUT.0 - 112.0, 88.0)
+/// The two switches share the middle row.
+fn button_rect(item: Item) -> (f32, f32, f32, f32) {
+    let (left, width, gap) = (56.0, LAYOUT.0 - 112.0, 24.0);
+    let half = (width - gap) / 2.0;
+    let row = |r: f32| 176.0 + r * 104.0;
+    match item {
+        Item::Recenter => (left, row(0.0), width, 88.0),
+        Item::Passthrough => (left, row(1.0), half, 88.0),
+        Item::Sharpening => (left + half + gap, row(1.0), half, 88.0),
+        Item::Close => (left, row(2.0), width, 88.0),
+    }
 }
 
 fn item_at((x, y): (f32, f32)) -> Option<usize> {
-    (0..ITEMS.len()).find(|&i| {
-        let (bx, by, bw, bh) = button_rect(i);
+    ITEMS.iter().position(|(item, _)| {
+        let (bx, by, bw, bh) = button_rect(*item);
         (bx..bx + bw).contains(&x) && (by..by + bh).contains(&y)
     })
 }

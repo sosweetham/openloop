@@ -195,10 +195,93 @@ client with no Mac-side change.
 
 Pure Rust plus an `AndroidManifest.xml`: `NativeActivity` via `android-activity`, OpenXR
 through the Khronos Android loader, and `AMediaCodec` decoding into an `AImageReader` whose
-images GLES 3 samples through EGLImages, without copies. Tether's menu is a cylinder layer (a
-quad where the runtime lacks cylinders). The APK is packaged with the SDK command-line tools,
-without Gradle. The few Android features that are Java-only (USB accessory, multicast lock,
-system keyboard) are reached through JNI from Rust; there are no Java or Kotlin sources.
+images GLES 3 samples through EGLImages, without copies. Each eye is drawn into a swapchain the
+size of the stream's eye, texel for texel (see [Video quality](#video-quality)). Tether's menu is
+a cylinder layer (a quad where the runtime lacks cylinders). The APK is packaged with the SDK
+command-line tools, without Gradle. The few Android features that are Java-only (USB accessory,
+multicast lock, system keyboard) are reached through JNI from Rust; there are no Java or Kotlin
+sources.
+
+## Video quality
+
+The Quest 3's panel has about 25.5 pixels per degree at the lens centre, and an eye rendered at
+the headset's recommended 1680x1760 has about 13: the headset's compositor magnifies every app
+pixel about twice, so aliasing and any resampling on the way show as blocky pixels. Each stage is
+set so the picture is resampled once on the Mac, decoded texel for texel, and magnified once, by
+the headset. The numbers below are measured on an M3 Max (30-core GPU) at 90 Hz on Kenbu's
+frames: quality as PSNR and SSIM of the luma the panel lights near the lens centre against a 4x
+supersampled render, through Tether's own compositor and VideoToolbox and a model of the client
+and of the headset's bilinear resample.
+
+**Render size.** `xrEnumerateViewConfigurationViews` recommends the headset's size times the
+render scale, 1.4 by default (`tether_stream::video`), rounded to 16: 2352x2464 for a Quest 3.
+`TETHER_RENDER_SCALE` (0.5 to 2.0) sets it for an app's process; an engine's own multiplier,
+such as Godot's `render_target_size_multiplier`, applies on top. Supersampling antialiases
+whatever the app draws: Kenbu's gameplay goes from 27.3 to 29.7 dB at the same encoded size,
+for 1.3-1.7 ms more GPU time per frame (2.3-3.0 to 3.7-4.6 ms, compositor included). An app
+that renders below the encoded size is encoded as it is, not scaled up.
+
+**Encoded size.** Each eye is encoded at the app's size, or at the largest size of the same
+aspect, in multiples of 16, that keeps VideoToolbox's p95 encode time inside one frame period:
+`ENCODE_PIXEL_RATE`, 600 Mpx/s for both eyes, divided by the refresh rate. At 90 Hz that is
+1776x1856 per eye, a 3552x1856 stream. Text is limited by this size, gameplay barely:
+
+| Eye encoded | Encode p50 / p95 (ms) | Menu text | Gameplay |
+| ----------- | --------------------- | --------- | -------- |
+| 1680x1760   | 8.2-8.3 / 9.0-9.4     | 32.4 dB   | 29.7 dB  |
+| 1776x1856   | 8.8-8.9 / 9.7-9.9     | 32.9 dB   | 29.7 dB  |
+| 1840x1936   | 9.5-9.8 / 10.5-11.0   | 33.4 dB   | 29.8 dB  |
+| 2016x2112   | 11.3 / 12.5           | 34.4 dB   | 29.8 dB  |
+
+Encode times are 20 s runs from 2352x2464 eyes at 150 Mbps, the upper figures with the Mac
+busy; quality is after encoding, from 2352x2464 eyes. The Quest 3's HEVC decoder is rated for
+7.78 M blocks of 16x16 a second; 3552x1856 at 90 Hz needs 2.3 M.
+
+**Downscale.** The compositor filters an eye larger than the encoded one with a separable
+Lanczos-3 kernel stretched over each output pixel's footprint, in gamma-encoded R'G'B', in two
+compute passes, the second writing the 4:2:0 planes. From 2352x2464 eyes to 1680x1760, before
+encoding, menu text measures 32.4 dB with it, against 31.6 with Catmull-Rom, 31.1 with one
+bilinear tap and 30.6 with a box filter; gameplay is within 0.1 dB of each. Filtering in linear
+light measured 0.3-0.8 dB worse. For 2352x2464 eyes the passes take about 0.9 ms of GPU time at
+full clock and up to 2.8 ms when the GPU idles between frames, against 0.15-0.7 ms for eyes read
+texel for texel.
+
+**Encoder.** HEVC Main at 150 Mbps over USB (the decoder is rated to 160), no frame
+reordering, speed over quality, keyframes on demand, and:
+- `RealTime` off. With it on, VideoToolbox slows itself to the frame rate after about 3 s: Kenbu
+  through the runtime encoded in 15.0-15.5 ms p50 / 16.5-16.8 ms p95 before, and 8.8-8.9 /
+  9.0-9.4 ms after (at 3552x1856 from 1.4x eyes, against 3360x1760 before).
+- A blank frame warms every new session up and is dropped. A session's first frame took 70 ms
+  and queued the next ten behind it, past the compositor's six slots, so streams lost frames as
+  they started.
+- Spatial adaptive QP off: it moves bits from detail to flat areas; off, text and edges keep
+  them (+1.2 dB at 150 Mbps).
+- Low-latency rate control stays off: it caps HEVC near 100 Mbps at these sizes and takes
+  about 22 ms a frame when paced.
+
+**Headset.** The client sizes its eye swapchains from each `ServerHello`, honours MediaCodec's
+crop rectangle, and computes texture coordinates in `highp`: Adreno runs `mediump` as fp16, which
+cannot address a 3000-texel-wide video, so the right eye repeated 703 of its 1680 columns and
+menu text measured 24.7 dB in it (28.0 in the left). The video layer asks the compositor for
+quality sharpening (Meta Quest Super Resolution) and the menu for quality supersampling,
+through `XR_FB_composition_layer_settings`, with `XR_META_automatic_layer_filter`'s automatic
+bit where offered so the compositor filters only where it helps; Meta documents only sharpening
+for projection layers. The menu's Sharpening switch turns it off for comparison; its effect
+cannot be measured off the headset. A runtime that refuses a frame for its layer settings gets
+the stream without them from then on. The client logs whether the runtime offers both
+extensions and how many bits `mediump` has.
+
+**End to end**, frame 60 of each 90-frame sequence, after encoding:
+
+| | Gameplay | Menu text |
+| --- | --- | --- |
+| Before: 1680x1760, 80 Mbps, `mediump` client; left / right eye | 27.0 / 25.9 dB, SSIM 0.875 / 0.847 | 28.0 / 24.7 dB, SSIM 0.950 / 0.910 |
+| Now: 2352x2464 → 1776x1856, 150 Mbps; either eye | 29.7 dB, SSIM 0.919 | 32.9 dB, SSIM 0.981 |
+| Now with `TETHER_RENDER_SCALE=1.0` | 27.3 dB, SSIM 0.889 | 32.1 dB, SSIM 0.979 |
+
+The runtime logs each stream's frames dropped before and lost after encoding, and its encode
+and composition times, when the stream ends; `tetherd`'s session report counts the frames that
+never reached it and the time from each frame's start to its encoded access unit.
 
 ## Graphics API
 
@@ -218,13 +301,14 @@ MoltenVK are out of scope until the Metal path is complete.
     `hello_xr` streams and is killed mid-stream; a second starts a second later on the same
     headset link and streams for 10 s more.
 
-  Either fails unless the video arrives at the headset's refresh rate, every stream starts with
-  a keyframe, frame indices have no gaps, the fake headset finds no protocol errors and
-  `hello_xr` quits cleanly. Tetherd mode also fails unless `tetherd` keeps its process and the
-  headset its one link across the crash, drops the dead app's session, ends its stream with
-  `StreamEnded` and writes a report per session; and unless the sound arrives as the tone it
-  was, in packets with no gap in sequence or frames, spaced by their frames, each due about the
-  pipeline latency after it was captured, and the dead app's sound stops with `AudioStop`.
+  Either fails unless a stream of the size `tether_stream::video` sets for the headset starts,
+  the video arrives at the headset's refresh rate, every stream starts with a keyframe, frame
+  indices have no gaps, the fake headset finds no protocol errors and `hello_xr` quits cleanly.
+  Tetherd mode also fails unless `tetherd` keeps its process and the headset its one link across
+  the crash, drops the dead app's session, ends its stream with `StreamEnded` and writes a report
+  per session; and unless the sound arrives as the tone it was, in packets with no gap in
+  sequence or frames, spaced by their frames, each due about the pipeline latency after it was
+  captured, and the dead app's sound stops with `AudioStop`.
   Neither touches adb, port 47800, the installed `tetherd`, Core Audio or a running app.
 
 ## Today

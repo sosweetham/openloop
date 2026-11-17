@@ -6,7 +6,7 @@
 | **R1** | Simulated headset: full API in-process, compositor shows both eyes in a Mac window, keyboard/mouse drive head and controllers; `hello_xr` and stock Godot (`examples/godot/hello`) end to end; CTS built with a core pass rate | No      | API done in-process; the Mac-window simulator and the CTS are not built |
 | **R2** | `tetherd` out of process: NSXPC control plane, `xpc_shmem` data plane, `MTLSharedTextureHandle` swapchains, `MTLSharedEvent` ordering, the app's audio in the headset | Yes     | S2 built: `tetherd` owns the headset and streams the app's sound, checked end to end with a synthetic tone; the live Core Audio capture waits for the permission step at the Mac; S3 next |
 | **R3** | Pure-Rust Quest client + USB: poses up, test pattern down, round-trip latency measured                                                | Yes     | Done, except that round-trip latency is not reported |
-| **R4** | Streaming: VideoToolbox → MediaCodec, pose-tagged frames, frame pacing, recenter; Godot in the headset over USB-C                     | Yes     | Godot streams over USB-C; pacing is not locked to the headset (R2 S4), and no session report measures the gates yet |
+| **R4** | Streaming: VideoToolbox → MediaCodec, pose-tagged frames, frame pacing, recenter; Godot in the headset over USB-C                     | Yes     | Godot streams over USB-C, supersampled and encoded within the latency gate; pacing is not locked to the headset (R2 S4), and the session report measures only frame loss and frame-to-encode time |
 | **R5** | Wi-Fi: discovery, FEC + retransmit, network-only adaptive bitrate                                                                   | Yes     | — |
 | **R6** | Tuning to the quality gates below; full controller input and haptics                                                                | Yes     | — |
 | **R7** | Menu-bar app, launchd agent, in-headset launcher, pairing, system runtime registration                                              | Yes     | — |
@@ -43,6 +43,10 @@ A milestone that streams is done when its session report passes these, not when 
 | Encoded frames discarded by the client decoder           | 0; a frame waits for a decoder buffer or the stream skips to the next keyframe | R4 |
 | Audio dropouts over USB, 5-minute session                | 0; any A/V offset Tether adds is reported          | R2        |
 
+`packages/rust/stream/tests/encode_latency.rs` holds the encode-latency gate on this Mac's media
+engine, on demand (`cargo test -p tether-stream --release --test encode_latency -- --ignored
+composed_frames`): 20 s of a moving scene rendered at the default render scale, filtered down and
+encoded at the USB bitrate, with no frame dropped before encode.
 `tether-fake-headset` stands in for the headset in automated tests and can stall its reads,
 request keyframes and drift its clock, which is how decoder backpressure, encoder stalls and
 a lossless link are reproduced; `scripts/e2e.sh` runs its steady stream in-process and through

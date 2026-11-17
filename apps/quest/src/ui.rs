@@ -40,9 +40,8 @@ impl Canvas {
     fn blend(&mut self, x: usize, y: usize, color: Rgba, coverage: f32) {
         let alpha = f32::from(color[3]) / 255.0 * coverage;
         let i = (y * self.width + x) * 4;
-        for c in 0..3 {
-            let dst = f32::from(self.pixels[i + c]);
-            self.pixels[i + c] = (f32::from(color[c]) * alpha + dst * (1.0 - alpha)).round() as u8;
+        for (dst, &src) in self.pixels[i..i + 3].iter_mut().zip(&color[..3]) {
+            *dst = (f32::from(src) * alpha + f32::from(*dst) * (1.0 - alpha)).round() as u8;
         }
         let dst = f32::from(self.pixels[i + 3]);
         self.pixels[i + 3] = (255.0 * alpha + dst * (1.0 - alpha)).round() as u8;

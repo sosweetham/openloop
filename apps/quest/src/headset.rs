@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::time::Instant;
 
+use glow::HasContext;
 use openxr as xr;
 use tether_protocol::{
     ControllerState, DeviceProfile, Fov, Haptics, Message, PROTOCOL_VERSION, Pose, Tracking,
@@ -33,6 +34,84 @@ struct Eye {
     height: u32,
 }
 
+/// What the headset's compositor may do to a layer's texture beyond its bilinear sampling
+/// (XR_FB_composition_layer_settings; Meta's "Composition Layer Filtering").
+#[derive(Clone, Copy)]
+struct Filters {
+    offered: bool,
+    /// XR_META_automatic_layer_filter: the compositor filters only where the layer's density
+    /// against the display's calls for it, and stops under GPU load.
+    automatic: bool,
+    /// The menu's switch.
+    sharpen: bool,
+}
+
+impl Filters {
+    fn settings(
+        self,
+        flags: xr::sys::CompositionLayerSettingsFlagsFB,
+    ) -> Option<xr::sys::CompositionLayerSettingsFB> {
+        let auto = xr::sys::CompositionLayerSettingsFlagsFB::AUTO_LAYER_FILTER;
+        self.offered.then(|| xr::sys::CompositionLayerSettingsFB {
+            ty: xr::sys::CompositionLayerSettingsFB::TYPE,
+            next: std::ptr::null(),
+            layer_flags: if self.automatic { flags | auto } else { flags },
+        })
+    }
+
+    /// The stream is magnified towards the lens centre, so it is sharpened (Meta Quest Super
+    /// Resolution). Meta allows sharpening and supersampling together only with automatic
+    /// filtering, and supports only sharpening on projection layers.
+    fn video(self) -> Option<xr::sys::CompositionLayerSettingsFB> {
+        self.settings(xr::sys::CompositionLayerSettingsFlagsFB::QUALITY_SHARPENING)
+            .filter(|_| self.sharpen)
+    }
+
+    /// The menu has more texels per degree than the display, so it is supersampled.
+    fn menu(self) -> Option<xr::sys::CompositionLayerSettingsFB> {
+        self.settings(xr::sys::CompositionLayerSettingsFlagsFB::QUALITY_SUPER_SAMPLING)
+    }
+}
+
+/// `settings` chained to a layer's `next`. The layer must reach `xrEndFrame` while `settings`
+/// lives.
+fn chain<T>(settings: Option<&xr::sys::CompositionLayerSettingsFB>, next: &mut *const T) {
+    if let Some(settings) = settings {
+        *next = (settings as *const xr::sys::CompositionLayerSettingsFB).cast();
+    }
+}
+
+/// A swapchain per eye at `size`.
+fn eye_swapchains(
+    session: &xr::Session<xr::OpenGlEs>,
+    format: u32,
+    (width, height): (u32, u32),
+) -> Result<Vec<Eye>, xr::sys::Result> {
+    (0..2)
+        .map(|_| {
+            let swapchain = session.create_swapchain(&xr::SwapchainCreateInfo {
+                create_flags: xr::SwapchainCreateFlags::EMPTY,
+                usage_flags: xr::SwapchainUsageFlags::COLOR_ATTACHMENT
+                    | xr::SwapchainUsageFlags::SAMPLED,
+                format,
+                sample_count: 1,
+                width,
+                height,
+                face_count: 1,
+                array_size: 1,
+                mip_count: 1,
+            })?;
+            let images = swapchain.enumerate_images()?;
+            Ok(Eye {
+                swapchain,
+                images,
+                width,
+                height,
+            })
+        })
+        .collect()
+}
+
 struct Input {
     set: xr::ActionSet,
     hands: [xr::Path; 2],
@@ -50,7 +129,13 @@ struct Input {
 pub struct Headset {
     renderer: Renderer,
     video: VideoTexture,
+    /// The decoded picture in the video texture, `[u, v, width, height]`.
+    picture: [f32; 4],
     eyes: Vec<Eye>,
+    format: u32,
+    /// The largest eye swapchain the runtime takes.
+    max_eye: (u32, u32),
+    filters: Filters,
     input: Input,
     menu: Menu,
     menu_open: bool,
@@ -145,6 +230,9 @@ impl Headset {
         extensions.khr_convert_timespec_time = available.khr_convert_timespec_time;
         extensions.khr_composition_layer_cylinder = available.khr_composition_layer_cylinder;
         extensions.fb_passthrough = available.fb_passthrough;
+        extensions.fb_composition_layer_settings = available.fb_composition_layer_settings;
+        extensions.meta_automatic_layer_filter =
+            available.fb_composition_layer_settings && available.meta_automatic_layer_filter;
         // OpenXR 1.1 makes LOCAL_FLOOR core; older runtimes get 1.0. The patch must be the
         // headers' own: Meta's runtime treats a low patch as a legacy app and switches on
         // compatibility behaviour, which disables STAGE among other things.
@@ -197,34 +285,28 @@ impl Headset {
             formats[0]
         };
         let config_views = instance.enumerate_view_configuration_views(system, VIEW_TYPE)?;
-        let eyes = config_views
-            .iter()
-            .map(|view| -> Result<Eye, xr::sys::Result> {
-                let (width, height) = (
-                    view.recommended_image_rect_width,
-                    view.recommended_image_rect_height,
-                );
-                let swapchain = session.create_swapchain(&xr::SwapchainCreateInfo {
-                    create_flags: xr::SwapchainCreateFlags::EMPTY,
-                    usage_flags: xr::SwapchainUsageFlags::COLOR_ATTACHMENT
-                        | xr::SwapchainUsageFlags::SAMPLED,
-                    format,
-                    sample_count: 1,
-                    width,
-                    height,
-                    face_count: 1,
-                    array_size: 1,
-                    mip_count: 1,
-                })?;
-                let images = swapchain.enumerate_images()?;
-                Ok(Eye {
-                    swapchain,
-                    images,
-                    width,
-                    height,
-                })
-            })
-            .collect::<Result<_, _>>()?;
+        let view = config_views[0];
+        let max_eye = (view.max_image_rect_width, view.max_image_rect_height);
+        let eyes = eye_swapchains(
+            &session,
+            format,
+            (
+                view.recommended_image_rect_width,
+                view.recommended_image_rect_height,
+            ),
+        )?;
+        let filters = Filters {
+            offered: instance.exts().fb_composition_layer_settings.is_some(),
+            automatic: instance.exts().meta_automatic_layer_filter.is_some(),
+            sharpen: true,
+        };
+        log::info!(
+            "layer filtering {}, automatic {}; eye swapchains up to {}x{}",
+            filters.offered,
+            filters.automatic,
+            max_eye.0,
+            max_eye.1
+        );
 
         let (refresh_rates, refresh_rate) = if instance.exts().fb_display_refresh_rate.is_some() {
             let rates = session.enumerate_display_refresh_rates()?;
@@ -238,6 +320,13 @@ impl Headset {
 
         let input = Input::new(&instance, &session)?;
         let gl = egl.gl();
+        // SAFETY: the context is current. 10 bits of mediump precision is fp16.
+        let mediump =
+            unsafe { gl.get_shader_precision_format(glow::FRAGMENT_SHADER, glow::MEDIUM_FLOAT) };
+        log::info!(
+            "fragment mediump precision: {:?} bits",
+            mediump.map(|p| p.precision)
+        );
         let video = VideoTexture::new(&egl, &gl)?;
         let renderer = Renderer::new(gl)?;
         let panel = Panel::new(&session, &renderer.gl, format, menu::PIXELS)?;
@@ -264,7 +353,11 @@ impl Headset {
         Ok(Self {
             renderer,
             video,
+            picture: [0.0, 0.0, 1.0, 1.0],
             eyes,
+            format,
+            max_eye,
+            filters,
             input,
             menu: Menu::new(shape),
             menu_open: false,
@@ -273,6 +366,7 @@ impl Headset {
                 connected: false,
                 video: None,
                 passthrough: false,
+                sharpening: filters.offered.then_some(filters.sharpen),
             },
             passthrough: None,
             view_space,
@@ -364,6 +458,7 @@ impl Headset {
                     self.decoder = Decoder::new(hello.video_width, hello.video_height, true)
                         .map_err(|e| log::error!("decoder: {e}"))
                         .ok();
+                    self.resize_eyes((hello.video_width / 2, hello.video_height));
                 }
                 Event::Message(Message::VideoFrame(frame)) => {
                     if let Some(decoder) = &self.decoder {
@@ -385,6 +480,29 @@ impl Headset {
         }
     }
 
+    /// Eye swapchains the size of the stream's eyes, so the blit maps each decoded texel to one
+    /// pixel and the compositor resamples the picture once, onto the display.
+    fn resize_eyes(&mut self, (width, height): (u32, u32)) {
+        let size = (
+            width.clamp(1, self.max_eye.0),
+            height.clamp(1, self.max_eye.1),
+        );
+        if self.eyes.iter().all(|e| (e.width, e.height) == size) {
+            return;
+        }
+        // xrDestroySwapchain: "All submitted graphics API commands that refer to swapchain must
+        // have completed execution", and the old ones go when they are replaced.
+        // SAFETY: the context is current.
+        unsafe { self.renderer.gl.finish() };
+        match eye_swapchains(&self.session, self.format, size) {
+            Ok(eyes) => {
+                log::info!("eye swapchains {}x{}", size.0, size.1);
+                self.eyes = eyes;
+            }
+            Err(e) => log::error!("eye swapchains {}x{}: {e}", size.0, size.1),
+        }
+    }
+
     /// Back to waiting for a stream: the placeholder replaces the last frame.
     fn end_video(&mut self) {
         self.status.video = None;
@@ -401,7 +519,10 @@ impl Headset {
             return;
         };
         match self.video.bind(&self.renderer.gl, image) {
-            Ok(()) => self.shown = Some(views),
+            Ok(picture) => {
+                self.picture = picture;
+                self.shown = Some(views);
+            }
             Err(e) => log::warn!("video frame: {e}"),
         }
     }
@@ -434,8 +555,14 @@ impl Headset {
             eye.swapchain.wait_image(xr::Duration::INFINITE)?;
             let target = eye.images[image as usize];
             if self.shown.is_some() {
-                self.renderer
-                    .eye(target, eye.width, eye.height, self.video.texture, index);
+                self.renderer.eye(
+                    target,
+                    eye.width,
+                    eye.height,
+                    self.video.texture,
+                    self.picture,
+                    index,
+                );
             } else {
                 self.renderer.placeholder(target, eye.width, eye.height);
             }
@@ -462,9 +589,14 @@ impl Headset {
                     )
             })
             .collect();
-        let video = xr::CompositionLayerProjection::new()
+        let video_filter = self.filters.video();
+        let mut video = xr::CompositionLayerProjection::new()
             .space(&self.space)
-            .views(&projection);
+            .views(&projection)
+            .into_raw();
+        chain(video_filter.as_ref(), &mut video.next);
+        // SAFETY: the builder's own fields, and `video_filter`, which outlives `end` below.
+        let video = unsafe { xr::CompositionLayerProjection::from_raw(video) };
         let room = self.passthrough.as_ref().map(Passthrough::layer);
         let mut layers: Vec<&xr::CompositionLayerBase<'_, xr::OpenGlEs>> = Vec::with_capacity(2);
         match &room {
@@ -472,8 +604,10 @@ impl Headset {
             None => layers.push(&*video),
         }
         let Some(panel_pose) = self.menu.panel() else {
-            self.frame_stream
-                .end(time, xr::EnvironmentBlendMode::OPAQUE, &layers)?;
+            let ended = self
+                .frame_stream
+                .end(time, xr::EnvironmentBlendMode::OPAQUE, &layers);
+            self.unfiltered_if_refused(ended)?;
             return Ok(());
         };
         if self.menu.redraw(self.status) {
@@ -481,27 +615,57 @@ impl Headset {
         }
         self.panel.draw(&self.renderer.gl)?;
         let pose = posef(&panel_pose);
+        let menu_filter = self.filters.menu();
         let cylinder;
         let quad;
         match self.menu.shape() {
             Shape::Curved => {
-                cylinder = self.panel.cylinder(
-                    &self.space,
-                    pose,
-                    menu::RADIUS_M,
-                    menu::CENTRAL_ANGLE,
-                    menu::ASPECT,
-                );
+                let mut raw = self
+                    .panel
+                    .cylinder(
+                        &self.space,
+                        pose,
+                        menu::RADIUS_M,
+                        menu::CENTRAL_ANGLE,
+                        menu::ASPECT,
+                    )
+                    .into_raw();
+                chain(menu_filter.as_ref(), &mut raw.next);
+                // SAFETY: the builder's own fields, and `menu_filter`, which outlives `end`.
+                cylinder = unsafe { xr::CompositionLayerCylinderKHR::from_raw(raw) };
                 layers.push(&*cylinder);
             }
             Shape::Flat => {
-                quad = self.panel.quad(&self.space, pose, Shape::Flat.size_m());
+                let mut raw = self
+                    .panel
+                    .quad(&self.space, pose, Shape::Flat.size_m())
+                    .into_raw();
+                chain(menu_filter.as_ref(), &mut raw.next);
+                // SAFETY: as above.
+                quad = unsafe { xr::CompositionLayerQuad::from_raw(raw) };
                 layers.push(&*quad);
             }
         }
-        self.frame_stream
-            .end(time, xr::EnvironmentBlendMode::OPAQUE, &layers)?;
+        let ended = self
+            .frame_stream
+            .end(time, xr::EnvironmentBlendMode::OPAQUE, &layers);
+        self.unfiltered_if_refused(ended)?;
         Ok(())
+    }
+
+    /// Layer settings are suggestions the runtime may ignore (XR_FB_composition_layer_settings),
+    /// but a runtime that refuses a frame for them must not end the stream: the frame is dropped
+    /// and filtering stays off from then on.
+    fn unfiltered_if_refused(&mut self, ended: xr::Result<()>) -> xr::Result<()> {
+        match ended {
+            Err(e) if self.filters.offered => {
+                log::error!("a frame with layer filtering was refused ({e}); filtering off");
+                self.filters.offered = false;
+                self.status.sharpening = None;
+                Ok(())
+            }
+            ended => ended,
+        }
     }
 
     fn toggle_passthrough(&mut self) {
@@ -546,6 +710,11 @@ impl Headset {
         }
         if outcome.command == Some(Command::TogglePassthrough) {
             self.toggle_passthrough();
+        }
+        if outcome.command == Some(Command::ToggleSharpening) && self.filters.offered {
+            self.filters.sharpen = !self.filters.sharpen;
+            self.status.sharpening = Some(self.filters.sharpen);
+            log::info!("sharpening {}", self.filters.sharpen);
         }
         if outcome.command == Some(Command::Recenter) {
             log::info!("recenter from the menu");

@@ -30,6 +30,10 @@ installed system-wide. `scripts/tetherd.sh` also restarts, stops, shows, follows
 uninstalls the agent. The headset needs this checkout's Quest app
 (`scripts/quest-apk.sh --install`).
 
+Apps are asked to render each eye at 1.4 times the headset's size, which Tether filters down
+to what it encodes (see [Video quality](docs/ARCHITECTURE.md#video-quality));
+`TETHER_RENDER_SCALE=1.0 scripts/run.sh …` renders at the headset's own size instead.
+
 To hear the app in the headset instead of on the Mac, grant `tetherd` the System Audio
 Recording permission once, sitting at the Mac: `scripts/tetherd.sh audio-permission` (click
 Allow), then `scripts/tetherd.sh audio-check`. `TETHER_AUDIO=off scripts/tetherd.sh install`

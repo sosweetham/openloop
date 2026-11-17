@@ -8,8 +8,13 @@ config/name="Tether Hello"
 run/main_scene="res://main.tscn"
 config/features=PackedStringArray("4.7", "Mobile")
 
+[gui]
+
+theme/default_font_generate_mipmaps=true
+
 [rendering]
 
+anti_aliasing/quality/msaa_3d=2
 renderer/rendering_method="mobile"
 rendering_device/driver.macos="metal"
 

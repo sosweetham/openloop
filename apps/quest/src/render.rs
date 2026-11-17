@@ -16,9 +16,12 @@ void main() {
 
 // Decoded video is gamma-encoded and the swapchain is sRGB, which re-encodes on write, so the
 // shader linearises first. Video rows run top-down; GL framebuffers run bottom-up.
+// Texture coordinates need highp: Adreno runs mediump as fp16, whose 11 bits cannot address the
+// texels of a 3000-texel-wide video (in [0.5, 1) it steps 1/2048, so the right eye repeats
+// columns). With highp and a swapchain the size of the eye, each pixel lands on a texel centre.
 const FRAGMENT: &str = r#"#version 300 es
 #extension GL_OES_EGL_image_external_essl3 : require
-precision mediump float;
+precision highp float;
 uniform samplerExternalOES u_video;
 uniform vec2 u_offset;
 uniform vec2 u_scale;
@@ -107,8 +110,18 @@ impl Renderer {
         }
     }
 
-    /// Draws one eye's half of the side-by-side video into `target`.
-    pub fn eye(&self, target: u32, width: u32, height: u32, video: glow::Texture, eye: usize) {
+    /// Draws one eye of the side-by-side video into `target`: `picture` is the decoded picture's
+    /// `[u, v, width, height]` in the video texture, both eyes together.
+    pub fn eye(
+        &self,
+        target: u32,
+        width: u32,
+        height: u32,
+        video: glow::Texture,
+        picture: [f32; 4],
+        eye: usize,
+    ) {
+        let [u, v, w, h] = picture;
         let gl = &self.gl;
         // SAFETY: live swapchain texture and video texture; the context is current.
         unsafe {
@@ -118,8 +131,8 @@ impl Renderer {
             gl.bind_vertex_array(Some(self.vertex_array));
             gl.active_texture(glow::TEXTURE0);
             gl.bind_texture(GL_TEXTURE_EXTERNAL_OES, Some(video));
-            gl.uniform_2_f32(self.offset.as_ref(), eye as f32 * 0.5, 0.0);
-            gl.uniform_2_f32(self.scale.as_ref(), 0.5, 1.0);
+            gl.uniform_2_f32(self.offset.as_ref(), u + eye as f32 * w * 0.5, v);
+            gl.uniform_2_f32(self.scale.as_ref(), w * 0.5, h);
             gl.draw_arrays(glow::TRIANGLES, 0, 3);
             gl.bind_framebuffer(glow::FRAMEBUFFER, None);
             gl.flush();
