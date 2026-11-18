@@ -1,7 +1,7 @@
 # Tether — Architecture
 
 Tether is an OpenXR runtime for macOS whose display and tracking hardware is a Meta
-Quest 3 reached over USB-C or Wi-Fi. Apps link the Khronos loader as usual; the
+Quest 3 reached over USB-C, and later Wi-Fi (R5). Apps link the Khronos loader as usual; the
 loader finds Tether through its runtime manifest.
 
 This page is the design that R2 completes; [`ROADMAP.md`](ROADMAP.md) § R2 stages the move and
@@ -98,9 +98,11 @@ a dead peer.
 identity under the fixed identifier `dev.tether.tetherd`, with the hardened runtime and the
 `com.apple.security.device.audio-input` entitlement, and embeds an Info.plist
 (`__TEXT,__info_plist`) with the same bundle identifier, so the audio-capture permission survives
-rebuilds. The runtime talks to nothing that fails `tether_ipc::TETHERD_REQUIREMENT` (that
-identifier, signed by Tether's team): any process of the user's can register a Mach service
-name, but not sign as `tetherd`.
+rebuilds. The runtime talks to nothing that fails `tether_ipc::tetherd_requirement()` (that
+identifier, signed by the team the runtime was built for, `TETHER_TEAM_ID`, which
+`scripts/signing.sh` reads from the signing certificate): any process of the user's can
+register a Mach service name, but not sign as `tetherd`. A build without a team checks the
+identifier alone.
 
 ## Time
 
@@ -327,8 +329,8 @@ R2 is at stage S2: `tetherd` owns the headset and plays the app's sound in it.
   backlog of a stall, is dropped and the stream resumes at a keyframe. A runtime whose region's
   heartbeat is a second old holds the last pose and stops streaming.
 - `tetherd` captures the sound of the session begun last (see [Audio](#audio)). Its live Core
-  Audio capture has not yet run on this Mac: that waits for the permission step with the user at
-  the Mac. The audio sender takes the headset state's lock and writes to the link like the
+  Audio capture has run on the tested Mac, once the System Audio Recording permission was granted
+  through `scripts/tetherd.sh audio-permission`. The audio sender takes the headset state's lock and writes to the link like the
   video forwarder; neither is real-time yet (S5).
 - `tetherd` writes a JSON report per session to `~/Library/Logs/Tether/sessions/`, including what
   became of its sound.

@@ -7,7 +7,7 @@ files (`CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, etc.) are symlinks to it.
 ## Project
 
 **Tether** — a native macOS OpenXR runtime that uses a Meta Quest 3 as its display
-and tracking hardware, over USB-C or Wi-Fi. Any OpenXR app on the Mac (Metal via
+and tracking hardware, over USB-C (Wi-Fi is planned). Any OpenXR app on the Mac (Metal via
 `XR_KHR_metal_enable`) runs in the headset as if the headset were plugged into a PC.
 Tether is the baseline every later Mac VR app, game or experience is built on; it
 contains no game or app logic of its own.
