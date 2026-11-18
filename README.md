@@ -1,9 +1,7 @@
 # OpenLoop
 
-OpenLoop is an OpenXR runtime that runs OpenXR apps on a computer and shows them in a standalone
-headset. The app renders on the computer as it would for a headset wired to it. OpenLoop encodes
-each frame and sends it, with the app's sound, to OpenLoop's app on the headset, and the headset
-sends its tracking and controller input back.
+OpenLoop is an open-source OpenXR runtime that streams VR apps from your computer to a standalone
+headset: today from a Mac to a Meta Quest 3 over USB-C, with Wi-Fi and more platforms planned.
 
 Today OpenLoop runs on macOS, for apps that render with Metal, and streams to a Meta Quest 3 over
 USB-C. It is early, pre-release software: it has been tested on one Mac and one Quest 3 (see
@@ -12,6 +10,34 @@ binaries yet. It is meant to
 grow into a cross-platform OpenXR framework, with hosts other than macOS and clients for other
 headsets, such as a Linux client for Valve's Steam Frame and an Apple Vision Pro client (see
 [Direction](#direction-beyond-the-mac-and-the-quest-3)).
+
+## What OpenLoop is
+
+OpenLoop is an OpenXR runtime plus the streaming system that lets it use a standalone headset as
+its display. It is not an engine or an SDK: apps keep using the standard OpenXR API, and OpenLoop
+is what that API runs on. It has three parts:
+
+1. **The runtime** (`libopenloop_runtime.dylib`). OpenXR is the standard API that VR apps
+   (Godot, Unity, `hello_xr`) are written against. Every platform needs a runtime that implements
+   it, and the Khronos loader picks that runtime when an app starts VR. OpenLoop's runtime
+   implements instances, sessions, tracking spaces, controller input, the frame loop and Metal
+   swapchains.
+2. **The service** (`openloopd`). A per-user background agent that owns the headset connection.
+   It takes the frames the app renders, encodes them as HEVC with the Mac's hardware encoder,
+   captures the app's sound, sends both to the headset over USB-C, and receives head and
+   controller tracking back, with the two clocks kept in sync.
+3. **The headset app** (`openloop.quest`). On the Quest it decodes the video, shows it through
+   the headset's own compositor so motion stays smooth, plays the sound in sync, and sends the
+   tracking back.
+
+To the app, the headset looks as if it were plugged into the Mac. The closest relatives are ALVR,
+Virtual Desktop and Meta Quest Link, which stream from Windows (and, for ALVR, Linux) PCs, and
+WiVRn, an OpenXR runtime that streams from Linux. OpenLoop does this for the Mac, written from
+scratch in Rust.
+
+The parts that are not specific to the Mac or the Quest, such as the wire protocol, the streaming
+core and the audio playout, are separate crates, so other hosts and other headset clients can be
+built from them. That is the sense in which OpenLoop grows into a framework.
 
 ## Why OpenLoop exists
 
