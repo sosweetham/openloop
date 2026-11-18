@@ -12,25 +12,30 @@ use block2::RcBlock;
 use objc2::runtime::NSObjectProtocol;
 use objc2::{AllocAnyThread, sel};
 use objc2_core_audio::{
-    AudioDeviceCreateIOProcID, AudioDeviceDestroyIOProcID, AudioDeviceIOProcID, AudioDeviceStart, AudioDeviceStop,
-    AudioHardwareCreateAggregateDevice, AudioHardwareCreateProcessTap, AudioHardwareDestroyAggregateDevice,
-    AudioHardwareDestroyProcessTap, AudioObjectAddPropertyListenerBlock, AudioObjectGetPropertyData, AudioObjectID,
-    AudioObjectPropertyAddress, AudioObjectRemovePropertyListenerBlock, CATapDescription, CATapMuteBehavior,
-    kAudioAggregateDeviceIsPrivateKey, kAudioAggregateDeviceNameKey, kAudioAggregateDeviceTapAutoStartKey,
-    kAudioAggregateDeviceTapListKey, kAudioAggregateDeviceUIDKey, kAudioDevicePropertyDeviceIsAlive,
-    kAudioDevicePropertyNominalSampleRate, kAudioHardwareIllegalOperationError, kAudioHardwarePropertyProcessObjectList,
-    kAudioHardwarePropertyServiceRestarted, kAudioHardwarePropertyTranslatePIDToProcessObject,
-    kAudioObjectPropertyElementMain, kAudioObjectPropertyScopeGlobal, kAudioSubTapDriftCompensationKey,
-    kAudioSubTapUIDKey, kAudioTapPropertyFormat, kAudioTapPropertyUID,
+    AudioDeviceCreateIOProcID, AudioDeviceDestroyIOProcID, AudioDeviceIOProcID, AudioDeviceStart,
+    AudioDeviceStop, AudioHardwareCreateAggregateDevice, AudioHardwareCreateProcessTap,
+    AudioHardwareDestroyAggregateDevice, AudioHardwareDestroyProcessTap,
+    AudioObjectAddPropertyListenerBlock, AudioObjectGetPropertyData, AudioObjectID,
+    AudioObjectPropertyAddress, AudioObjectRemovePropertyListenerBlock, CATapDescription,
+    CATapMuteBehavior, kAudioAggregateDeviceIsPrivateKey, kAudioAggregateDeviceNameKey,
+    kAudioAggregateDeviceTapAutoStartKey, kAudioAggregateDeviceTapListKey,
+    kAudioAggregateDeviceUIDKey, kAudioDevicePropertyDeviceIsAlive,
+    kAudioDevicePropertyNominalSampleRate, kAudioHardwareIllegalOperationError,
+    kAudioHardwarePropertyProcessObjectList, kAudioHardwarePropertyServiceRestarted,
+    kAudioHardwarePropertyTranslatePIDToProcessObject, kAudioObjectPropertyElementMain,
+    kAudioObjectPropertyScopeGlobal, kAudioSubTapDriftCompensationKey, kAudioSubTapUIDKey,
+    kAudioTapPropertyFormat, kAudioTapPropertyUID,
 };
 use objc2_core_audio_types::{
-    AudioBufferList, AudioStreamBasicDescription, AudioTimeStamp, kAudioFormatFlagIsBigEndian, kAudioFormatFlagIsFloat,
-    kAudioFormatLinearPCM,
+    AudioBufferList, AudioStreamBasicDescription, AudioTimeStamp, kAudioFormatFlagIsBigEndian,
+    kAudioFormatFlagIsFloat, kAudioFormatLinearPCM,
 };
 use objc2_core_foundation::{CFArray, CFDictionary, CFNumber, CFRetained, CFString, CFType};
 use objc2_foundation::{NSArray, NSNumber, NSString, NSUUID};
 
-use crate::control::{Command, Hal, ListenerKey, ObjectId, SYSTEM_OBJECT, Status, TapFormat, TapObject, Watch};
+use crate::control::{
+    Command, Hal, ListenerKey, ObjectId, SYSTEM_OBJECT, Status, TapFormat, TapObject, Watch,
+};
 use crate::ioproc::{IoContext, io_proc};
 use crate::time;
 
@@ -74,7 +79,11 @@ pub(crate) struct CoreAudio {
 impl CoreAudio {
     /// Listener blocks forward each notification to the control thread through `notify`.
     pub fn new(notify: Sender<Command>) -> CoreAudio {
-        CoreAudio { notify, listeners: Vec::new(), aggregates: 0 }
+        CoreAudio {
+            notify,
+            listeners: Vec::new(),
+            aggregates: 0,
+        }
     }
 }
 
@@ -97,14 +106,21 @@ impl Hal for CoreAudio {
 
     fn translate_pid(&mut self, pid: i32) -> Result<ObjectId, Status> {
         // SAFETY: the property is an AudioObjectID qualified by a pid_t.
-        unsafe { get(SYSTEM_OBJECT, kAudioHardwarePropertyTranslatePIDToProcessObject, Some(&(pid as libc::pid_t))) }
+        unsafe {
+            get(
+                SYSTEM_OBJECT,
+                kAudioHardwarePropertyTranslatePIDToProcessObject,
+                Some(&(pid as libc::pid_t)),
+            )
+        }
     }
 
     fn create_tap(&mut self, process: ObjectId) -> Result<TapObject, Status> {
         let processes = NSArray::from_retained_slice(&[NSNumber::new_u32(process)]);
         // SAFETY: the initializer takes an array of process object IDs as NSNumbers.
-        let description =
-            unsafe { CATapDescription::initStereoMixdownOfProcesses(CATapDescription::alloc(), &processes) };
+        let description = unsafe {
+            CATapDescription::initStereoMixdownOfProcesses(CATapDescription::alloc(), &processes)
+        };
         // Every field is set because the defaults are not what they seem: on macOS 27 a fresh
         // description is already private and has processRestoreEnabled = YES, with which the
         // HAL fills in the process's bundle ID and would tap anything else that shares it.
@@ -137,7 +153,8 @@ impl Hal for CoreAudio {
 
     fn tap_format(&mut self, tap: ObjectId) -> Result<TapFormat, Status> {
         // SAFETY: the tap format property is an AudioStreamBasicDescription.
-        let format: AudioStreamBasicDescription = unsafe { get(tap, kAudioTapPropertyFormat, None::<&()>) }?;
+        let format: AudioStreamBasicDescription =
+            unsafe { get(tap, kAudioTapPropertyFormat, None::<&()>) }?;
         Ok(TapFormat {
             sample_rate: format.mSampleRate,
             channels: format.mChannelsPerFrame,
@@ -160,12 +177,18 @@ impl Hal for CoreAudio {
         // Destruction is asynchronous (AudioHardwareDestroyAggregateDevice), so a rebuilt
         // device never reuses a UID.
         self.aggregates += 1;
-        let uid = CFString::from_str(&format!("dev.tether.audiotap.{pid}.{tap_uid}.{}", self.aggregates));
+        let uid = CFString::from_str(&format!(
+            "dev.tether.audiotap.{pid}.{tap_uid}.{}",
+            self.aggregates
+        ));
         let name = CFString::from_str("Tether Capture");
         let tap_uid = CFString::from_str(tap_uid);
         let (one, zero) = (CFNumber::new_i32(1), CFNumber::new_i32(0));
 
-        let sub_tap_keys = [key(kAudioSubTapUIDKey), key(kAudioSubTapDriftCompensationKey)];
+        let sub_tap_keys = [
+            key(kAudioSubTapUIDKey),
+            key(kAudioSubTapDriftCompensationKey),
+        ];
         let sub_tap = CFDictionary::<CFString, CFType>::from_slices(
             &[&*sub_tap_keys[0], &*sub_tap_keys[1]],
             &[as_type(&*tap_uid), as_type(&*zero)],
@@ -179,18 +202,27 @@ impl Hal for CoreAudio {
             key(kAudioAggregateDeviceTapListKey),
         ];
         let key_refs: Vec<&CFString> = keys.iter().map(|k| &**k).collect();
-        let values = [as_type(&*name), as_type(&*uid), as_type(&*one), as_type(&*zero), as_type(&*taps)];
+        let values = [
+            as_type(&*name),
+            as_type(&*uid),
+            as_type(&*one),
+            as_type(&*zero),
+            as_type(&*taps),
+        ];
         let description = CFDictionary::<CFString, CFType>::from_slices(&key_refs, &values);
 
         let mut device: AudioObjectID = 0;
         // SAFETY: a dictionary of the documented aggregate keys and a valid out pointer.
-        check(unsafe { AudioHardwareCreateAggregateDevice(description.as_opaque(), NonNull::from(&mut device)) })?;
+        check(unsafe {
+            AudioHardwareCreateAggregateDevice(description.as_opaque(), NonNull::from(&mut device))
+        })?;
         Ok(device)
     }
 
     fn device_alive(&mut self, device: ObjectId) -> Result<bool, Status> {
         // SAFETY: the property is a UInt32.
-        unsafe { get::<u32, ()>(device, kAudioDevicePropertyDeviceIsAlive, None) }.map(|alive| alive != 0)
+        unsafe { get::<u32, ()>(device, kAudioDevicePropertyDeviceIsAlive, None) }
+            .map(|alive| alive != 0)
     }
 
     fn destroy_aggregate(&mut self, device: ObjectId) -> Result<(), Status> {
@@ -198,13 +230,24 @@ impl Hal for CoreAudio {
         check(unsafe { AudioHardwareDestroyAggregateDevice(device) })
     }
 
-    fn create_io_proc(&mut self, device: ObjectId, context: NonNull<IoContext>) -> Result<AudioDeviceIOProcID, Status> {
+    fn create_io_proc(
+        &mut self,
+        device: ObjectId,
+        context: NonNull<IoContext>,
+    ) -> Result<AudioDeviceIOProcID, Status> {
         // SAFETY: the same ABI. NonNull<T> is a transparent non-null pointer, and a "C" function
         // cannot unwind, which satisfies "C-unwind".
         let proc = unsafe { std::mem::transmute::<RawIoProc, BoundIoProc>(io_proc) };
         let mut id: AudioDeviceIOProcID = None;
         // SAFETY: the controller keeps `context` alive until the IOProc is destroyed.
-        check(unsafe { AudioDeviceCreateIOProcID(device, Some(proc), context.as_ptr().cast(), NonNull::from(&mut id)) })?;
+        check(unsafe {
+            AudioDeviceCreateIOProcID(
+                device,
+                Some(proc),
+                context.as_ptr().cast(),
+                NonNull::from(&mut id),
+            )
+        })?;
         Ok(id)
     }
 
@@ -218,7 +261,11 @@ impl Hal for CoreAudio {
         check(unsafe { AudioDeviceStop(device, proc) })
     }
 
-    fn destroy_io_proc(&mut self, device: ObjectId, proc: AudioDeviceIOProcID) -> Result<(), Status> {
+    fn destroy_io_proc(
+        &mut self,
+        device: ObjectId,
+        proc: AudioDeviceIOProcID,
+    ) -> Result<(), Status> {
         // SAFETY: an IOProc registered on this device.
         check(unsafe { AudioDeviceDestroyIOProcID(device, proc) })
     }
@@ -234,15 +281,26 @@ impl Hal for CoreAudio {
         let notify = self.notify.clone();
         // Runs on a HAL notification thread: it only forwards, and the control thread makes
         // any calls the change needs. Notifications may repeat; each is just a reason to look.
-        let block: ListenerBlock = RcBlock::new(move |_count: u32, _addresses: NonNull<AudioObjectPropertyAddress>| {
-            let _ = notify.send(Command::Changed(watch));
-        });
+        let block: ListenerBlock = RcBlock::new(
+            move |_count: u32, _addresses: NonNull<AudioObjectPropertyAddress>| {
+                let _ = notify.send(Command::Changed(watch));
+            },
+        );
         // SAFETY: a valid address and block; the HAL copies the block, and this keeps its own
         // reference until the listener is removed.
         check(unsafe {
-            AudioObjectAddPropertyListenerBlock(object, NonNull::from(&mut address), None, RcBlock::as_ptr(&block))
+            AudioObjectAddPropertyListenerBlock(
+                object,
+                NonNull::from(&mut address),
+                None,
+                RcBlock::as_ptr(&block),
+            )
         })?;
-        let registered = Some(Registered { object, address, block });
+        let registered = Some(Registered {
+            object,
+            address,
+            block,
+        });
         let slot = match self.listeners.iter().position(Option::is_none) {
             Some(slot) => {
                 self.listeners[slot] = registered;
@@ -257,7 +315,11 @@ impl Hal for CoreAudio {
     }
 
     fn remove_listener(&mut self, key: ListenerKey) -> Result<(), Status> {
-        let Some(mut registered) = self.listeners.get_mut(key.0 as usize).and_then(Option::take) else {
+        let Some(mut registered) = self
+            .listeners
+            .get_mut(key.0 as usize)
+            .and_then(Option::take)
+        else {
             return Err(Status(kAudioHardwareIllegalOperationError));
         };
         // SAFETY: the object, address, queue and block the listener was added with.
@@ -285,14 +347,22 @@ fn address(selector: u32) -> AudioObjectPropertyAddress {
 }
 
 fn check(status: i32) -> Result<(), Status> {
-    if status == 0 { Ok(()) } else { Err(Status(status)) }
+    if status == 0 {
+        Ok(())
+    } else {
+        Err(Status(status))
+    }
 }
 
 /// Reads a fixed-size property.
 ///
 /// # Safety
 /// `T` is the property's plain-data type and `Q` its qualifier's.
-unsafe fn get<T: Copy, Q>(object: AudioObjectID, selector: u32, qualifier: Option<&Q>) -> Result<T, Status> {
+unsafe fn get<T: Copy, Q>(
+    object: AudioObjectID,
+    selector: u32,
+    qualifier: Option<&Q>,
+) -> Result<T, Status> {
     let mut address = address(selector);
     let mut value = MaybeUninit::<T>::zeroed();
     let mut size = size_of::<T>() as u32;

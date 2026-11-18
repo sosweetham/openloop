@@ -44,8 +44,14 @@ impl Timebase {
             let mut info = MachTimebaseInfo { numer: 0, denom: 0 };
             // SAFETY: a valid out pointer.
             let status = unsafe { mach_timebase_info(&mut info) };
-            assert!(status == 0 && info.denom != 0, "mach_timebase_info failed: {status}");
-            Timebase { numer: info.numer, denom: info.denom }
+            assert!(
+                status == 0 && info.denom != 0,
+                "mach_timebase_info failed: {status}"
+            );
+            Timebase {
+                numer: info.numer,
+                denom: info.denom,
+            }
         })
     }
 

@@ -50,8 +50,11 @@ impl TapFormat {
     /// The rate, when this is a format the IOProc reads: Float32 linear PCM at a whole rate.
     pub fn readable_rate(&self) -> Option<u32> {
         let rate = self.sample_rate;
-        (self.float32 && self.channels >= 1 && rate.fract() == 0.0 && (8_000.0..=384_000.0).contains(&rate))
-            .then_some(rate as u32)
+        (self.float32
+            && self.channels >= 1
+            && rate.fract() == 0.0
+            && (8_000.0..=384_000.0).contains(&rate))
+        .then_some(rate as u32)
     }
 }
 
@@ -75,7 +78,11 @@ pub(crate) trait Hal {
     fn create_aggregate(&mut self, tap_uid: &str, pid: i32) -> Result<ObjectId, Status>;
     fn device_alive(&mut self, device: ObjectId) -> Result<bool, Status>;
     fn destroy_aggregate(&mut self, device: ObjectId) -> Result<(), Status>;
-    fn create_io_proc(&mut self, device: ObjectId, context: NonNull<IoContext>) -> Result<Self::Proc, Status>;
+    fn create_io_proc(
+        &mut self,
+        device: ObjectId,
+        context: NonNull<IoContext>,
+    ) -> Result<Self::Proc, Status>;
     fn start(&mut self, device: ObjectId, proc: Self::Proc) -> Result<(), Status>;
     fn stop(&mut self, device: ObjectId, proc: Self::Proc) -> Result<(), Status>;
     fn destroy_io_proc(&mut self, device: ObjectId, proc: Self::Proc) -> Result<(), Status>;
@@ -119,25 +126,45 @@ struct Calls<H> {
 }
 
 impl<H: Hal> Calls<H> {
-    fn call<T>(&mut self, pid: i32, call: HalCall, f: impl FnOnce(&mut H) -> Result<T, Status>) -> Result<T, Abort> {
+    fn call<T>(
+        &mut self,
+        pid: i32,
+        call: HalCall,
+        f: impl FnOnce(&mut H) -> Result<T, Status>,
+    ) -> Result<T, Abort> {
         let start = self.hal.now_ns();
         let result = f(&mut self.hal);
         let elapsed = self.hal.now_ns().saturating_sub(start);
         if elapsed >= self.stall_ns {
-            self.block(BlockReason::Stalled { call, elapsed_ms: millis(elapsed) });
+            self.block(BlockReason::Stalled {
+                call,
+                elapsed_ms: millis(elapsed),
+            });
             return Err(Abort::Halted);
         }
         if elapsed >= self.slow_ns {
-            self.emit(Event::SlowCall { call, elapsed_ms: millis(elapsed) });
+            self.emit(Event::SlowCall {
+                call,
+                elapsed_ms: millis(elapsed),
+            });
         }
         result.map_err(|status| {
-            self.emit(Event::Failed { pid, call, status: status.0 });
+            self.emit(Event::Failed {
+                pid,
+                call,
+                status: status.0,
+            });
             Abort::Failed
         })
     }
 
     /// A teardown step: a failure is reported and the teardown goes on.
-    fn teardown(&mut self, pid: i32, call: HalCall, f: impl FnOnce(&mut H) -> Result<(), Status>) -> Result<bool, Halted> {
+    fn teardown(
+        &mut self,
+        pid: i32,
+        call: HalCall,
+        f: impl FnOnce(&mut H) -> Result<(), Status>,
+    ) -> Result<bool, Halted> {
         match self.call(pid, call, f) {
             Ok(()) => Ok(true),
             Err(Abort::Failed) => Ok(false),
@@ -259,7 +286,11 @@ impl<H: Hal> Controller<H> {
             return;
         }
         for key in mem::take(&mut self.system_listeners) {
-            if self.calls.teardown(0, HalCall::RemoveListener, |h| h.remove_listener(key)).is_err() {
+            if self
+                .calls
+                .teardown(0, HalCall::RemoveListener, |h| h.remove_listener(key))
+                .is_err()
+            {
                 self.state = State::Blocked;
                 return;
             }
@@ -288,7 +319,9 @@ impl<H: Hal> Controller<H> {
             return Ok(());
         }
         for watch in [Watch::ProcessList, Watch::ServiceRestarted] {
-            match self.calls.call(0, HalCall::AddListener, |h| h.add_listener(SYSTEM_OBJECT, watch)) {
+            match self.calls.call(0, HalCall::AddListener, |h| {
+                h.add_listener(SYSTEM_OBJECT, watch)
+            }) {
                 Ok(key) => self.system_listeners.push(key),
                 Err(Abort::Failed) => {}
                 Err(Abort::Halted) => return Err(Halted),
@@ -301,9 +334,15 @@ impl<H: Hal> Controller<H> {
     fn find(&mut self, pid: i32) {
         let waiting = matches!(self.state, State::Waiting { pid: p } if p == pid);
         self.state = State::Idle;
-        match self.calls.call(pid, HalCall::TranslatePid, |h| h.translate_pid(pid)) {
+        match self
+            .calls
+            .call(pid, HalCall::TranslatePid, |h| h.translate_pid(pid))
+        {
             Ok(0) if !self.calls.hal.process_exists(pid) => {
-                self.calls.emit(Event::Ended { pid, reason: EndReason::ProcessExited });
+                self.calls.emit(Event::Ended {
+                    pid,
+                    reason: EndReason::ProcessExited,
+                });
             }
             Ok(0) => {
                 if !waiting {
@@ -312,16 +351,27 @@ impl<H: Hal> Controller<H> {
                 self.state = State::Waiting { pid };
             }
             Ok(process) => self.open(pid, process, None),
-            Err(Abort::Failed) => self.calls.emit(Event::Ended { pid, reason: EndReason::Failed }),
+            Err(Abort::Failed) => self.calls.emit(Event::Ended {
+                pid,
+                reason: EndReason::Failed,
+            }),
             Err(Abort::Halted) => self.state = State::Blocked,
         }
     }
 
     fn open(&mut self, pid: i32, process: ObjectId, restart: Option<RestartReason>) {
         self.state = State::Idle;
-        let tap = match self.calls.call(pid, HalCall::CreateTap, |h| h.create_tap(process)) {
+        let tap = match self
+            .calls
+            .call(pid, HalCall::CreateTap, |h| h.create_tap(process))
+        {
             Ok(tap) => tap,
-            Err(Abort::Failed) => return self.calls.emit(Event::Ended { pid, reason: EndReason::Failed }),
+            Err(Abort::Failed) => {
+                return self.calls.emit(Event::Ended {
+                    pid,
+                    reason: EndReason::Failed,
+                });
+            }
             Err(Abort::Halted) => return self.state = State::Blocked,
         };
         let mut session = Session {
@@ -337,7 +387,11 @@ impl<H: Hal> Controller<H> {
             Ok(()) => {
                 let sample_rate = session.sample_rate;
                 self.calls.emit(match restart {
-                    Some(reason) => Event::Restarted { pid, reason, sample_rate },
+                    Some(reason) => Event::Restarted {
+                        pid,
+                        reason,
+                        sample_rate,
+                    },
                     None => Event::Started { pid, sample_rate },
                 });
                 self.state = State::Running(session);
@@ -349,7 +403,9 @@ impl<H: Hal> Controller<H> {
 
     fn configure(&mut self, session: &mut Session<H::Proc>) -> Result<(), Abort> {
         let (pid, tap) = (session.pid, session.tap.id);
-        let format = self.calls.call(pid, HalCall::ReadTapFormat, |h| h.tap_format(tap))?;
+        let format = self
+            .calls
+            .call(pid, HalCall::ReadTapFormat, |h| h.tap_format(tap))?;
         session.sample_rate = self.readable(pid, &format)?;
         session.format = format;
         session.tap_listener = self.listen(pid, tap, Watch::TapFormat)?;
@@ -368,8 +424,16 @@ impl<H: Hal> Controller<H> {
         })
     }
 
-    fn listen(&mut self, pid: i32, object: ObjectId, watch: Watch) -> Result<Option<ListenerKey>, Abort> {
-        match self.calls.call(pid, HalCall::AddListener, |h| h.add_listener(object, watch)) {
+    fn listen(
+        &mut self,
+        pid: i32,
+        object: ObjectId,
+        watch: Watch,
+    ) -> Result<Option<ListenerKey>, Abort> {
+        match self
+            .calls
+            .call(pid, HalCall::AddListener, |h| h.add_listener(object, watch))
+        {
             Ok(key) => Ok(Some(key)),
             Err(Abort::Failed) => Ok(None),
             Err(Abort::Halted) => Err(Abort::Halted),
@@ -380,7 +444,9 @@ impl<H: Hal> Controller<H> {
     fn start_io(&mut self, session: &mut Session<H::Proc>) -> Result<(), Abort> {
         let pid = session.pid;
         let uid = session.tap.uid.clone();
-        let aggregate = self.calls.call(pid, HalCall::CreateAggregate, |h| h.create_aggregate(&uid, pid))?;
+        let aggregate = self.calls.call(pid, HalCall::CreateAggregate, |h| {
+            h.create_aggregate(&uid, pid)
+        })?;
         let epoch = self.next_epoch;
         self.next_epoch = self.next_epoch.checked_add(1).unwrap_or(1);
         let context = IoContext::new(self.ring.clone(), self.timebase, epoch, session.sample_rate);
@@ -401,9 +467,12 @@ impl<H: Hal> Controller<H> {
             }
         }
         let context = io.context;
-        let proc = self.calls.call(pid, HalCall::CreateIoProc, |h| h.create_io_proc(aggregate, context))?;
+        let proc = self.calls.call(pid, HalCall::CreateIoProc, |h| {
+            h.create_io_proc(aggregate, context)
+        })?;
         io.proc = Some(proc);
-        self.calls.call(pid, HalCall::StartIo, |h| h.start(aggregate, proc))?;
+        self.calls
+            .call(pid, HalCall::StartIo, |h| h.start(aggregate, proc))?;
         io.started = true;
         io.started_ns = self.calls.hal.now_ns();
         Ok(())
@@ -421,7 +490,10 @@ impl<H: Hal> Controller<H> {
                     Ok(()) => self.calls.emit(Event::Ended { pid, reason }),
                     Err(Halted) => {
                         self.state = State::Blocked;
-                        self.calls.emit(Event::Ended { pid, reason: EndReason::Blocked });
+                        self.calls.emit(Event::Ended {
+                            pid,
+                            reason: EndReason::Blocked,
+                        });
                     }
                 }
             }
@@ -446,25 +518,31 @@ impl<H: Hal> Controller<H> {
             self.close_io(pid, io)?;
         }
         if let Some(key) = session.tap_listener.take() {
-            self.calls.teardown(pid, HalCall::RemoveListener, |h| h.remove_listener(key))?;
+            self.calls
+                .teardown(pid, HalCall::RemoveListener, |h| h.remove_listener(key))?;
         }
         let tap = session.tap.id;
-        self.calls.teardown(pid, HalCall::DestroyTap, |h| h.destroy_tap(tap))?;
+        self.calls
+            .teardown(pid, HalCall::DestroyTap, |h| h.destroy_tap(tap))?;
         Ok(())
     }
 
     fn close_io(&mut self, pid: i32, io: Io<H::Proc>) -> Result<(), Halted> {
         self.retire(&io);
         for key in io.listeners {
-            self.calls.teardown(pid, HalCall::RemoveListener, |h| h.remove_listener(key))?;
+            self.calls
+                .teardown(pid, HalCall::RemoveListener, |h| h.remove_listener(key))?;
         }
         let aggregate = io.aggregate;
         let freeable = match io.proc {
             Some(proc) => {
                 if io.started {
-                    self.calls.teardown(pid, HalCall::StopIo, |h| h.stop(aggregate, proc))?;
+                    self.calls
+                        .teardown(pid, HalCall::StopIo, |h| h.stop(aggregate, proc))?;
                 }
-                self.calls.teardown(pid, HalCall::DestroyIoProc, |h| h.destroy_io_proc(aggregate, proc))?
+                self.calls.teardown(pid, HalCall::DestroyIoProc, |h| {
+                    h.destroy_io_proc(aggregate, proc)
+                })?
             }
             None => true,
         };
@@ -472,7 +550,9 @@ impl<H: Hal> Controller<H> {
             // SAFETY: the IOProc was destroyed, or never registered, so nothing holds the context.
             drop(unsafe { Box::from_raw(io.context.as_ptr()) });
         }
-        self.calls.teardown(pid, HalCall::DestroyAggregate, |h| h.destroy_aggregate(aggregate))?;
+        self.calls.teardown(pid, HalCall::DestroyAggregate, |h| {
+            h.destroy_aggregate(aggregate)
+        })?;
         Ok(())
     }
 
@@ -524,7 +604,10 @@ impl<H: Hal> Controller<H> {
     }
 
     fn check_process(&mut self, pid: i32, process: ObjectId) {
-        match self.calls.call(pid, HalCall::TranslatePid, |h| h.translate_pid(pid)) {
+        match self
+            .calls
+            .call(pid, HalCall::TranslatePid, |h| h.translate_pid(pid))
+        {
             Ok(current) if current == process => {}
             Ok(_) => self.end(EndReason::ProcessExited),
             Err(Abort::Failed) => {}
@@ -542,13 +625,19 @@ impl<H: Hal> Controller<H> {
             let Some(aggregate) = aggregate else {
                 return;
             };
-            match self.calls.call(pid, HalCall::ReadDeviceAlive, |h| h.device_alive(aggregate)) {
+            match self
+                .calls
+                .call(pid, HalCall::ReadDeviceAlive, |h| h.device_alive(aggregate))
+            {
                 Ok(true) | Err(Abort::Failed) => return,
                 Ok(false) => (RestartReason::DeviceDied, None),
                 Err(Abort::Halted) => return self.halt(),
             }
         } else {
-            match self.calls.call(pid, HalCall::ReadTapFormat, |h| h.tap_format(tap)) {
+            match self
+                .calls
+                .call(pid, HalCall::ReadTapFormat, |h| h.tap_format(tap))
+            {
                 Ok(format) if format == current => return,
                 Ok(format) => (RestartReason::FormatChanged, Some(format)),
                 Err(Abort::Failed) => return,
@@ -589,7 +678,11 @@ impl<H: Hal> Controller<H> {
         match self.start_io(&mut session) {
             Ok(()) => {
                 let sample_rate = session.sample_rate;
-                self.calls.emit(Event::Restarted { pid, reason, sample_rate });
+                self.calls.emit(Event::Restarted {
+                    pid,
+                    reason,
+                    sample_rate,
+                });
                 self.state = State::Running(session);
             }
             Err(Abort::Failed) => self.close_after_failure(session),
@@ -612,15 +705,27 @@ impl<H: Hal> Controller<H> {
                 let pid = session.pid;
                 self.forget(session);
                 if !self.calls.latch.granted() {
-                    return self.calls.emit(Event::Ended { pid, reason: EndReason::ServiceRestarted });
+                    return self.calls.emit(Event::Ended {
+                        pid,
+                        reason: EndReason::ServiceRestarted,
+                    });
                 }
                 if self.watch_system().is_err() {
                     return self.state = State::Blocked;
                 }
-                match self.calls.call(pid, HalCall::TranslatePid, |h| h.translate_pid(pid)) {
-                    Ok(0) => self.calls.emit(Event::Ended { pid, reason: EndReason::ProcessExited }),
+                match self
+                    .calls
+                    .call(pid, HalCall::TranslatePid, |h| h.translate_pid(pid))
+                {
+                    Ok(0) => self.calls.emit(Event::Ended {
+                        pid,
+                        reason: EndReason::ProcessExited,
+                    }),
                     Ok(process) => self.open(pid, process, Some(RestartReason::ServiceRestarted)),
-                    Err(Abort::Failed) => self.calls.emit(Event::Ended { pid, reason: EndReason::Failed }),
+                    Err(Abort::Failed) => self.calls.emit(Event::Ended {
+                        pid,
+                        reason: EndReason::Failed,
+                    }),
                     Err(Abort::Halted) => self.state = State::Blocked,
                 }
             }
@@ -661,19 +766,27 @@ impl<H: Hal> Controller<H> {
                     if !io.receiving && context.callbacks() > 0 {
                         io.receiving = true;
                         self.calls.latch.grant();
-                        self.calls.emit(Event::Receiving { pid, after_ms: millis(waited) });
+                        self.calls.emit(Event::Receiving {
+                            pid,
+                            after_ms: millis(waited),
+                        });
                     } else if !io.receiving && waited >= self.first_callback_ns {
                         silent_for = Some(waited);
                     }
                     let unreadable = context.unreadable();
                     if unreadable > io.reported_unreadable && now >= io.next_unreadable_report_ns {
-                        self.calls.emit(Event::Unreadable { pid, callbacks: unreadable - io.reported_unreadable });
+                        self.calls.emit(Event::Unreadable {
+                            pid,
+                            callbacks: unreadable - io.reported_unreadable,
+                        });
                         io.reported_unreadable = unreadable;
                         io.next_unreadable_report_ns = now + LOSS_REPORT_NS;
                     }
                 }
                 if let Some(waited) = silent_for {
-                    self.calls.block(BlockReason::NoCallbacks { waited_ms: millis(waited) });
+                    self.calls.block(BlockReason::NoCallbacks {
+                        waited_ms: millis(waited),
+                    });
                     self.halt();
                 }
             }
@@ -685,7 +798,9 @@ impl<H: Hal> Controller<H> {
     fn report_overruns(&mut self, now: i64) {
         let dropped = self.ring.stats().dropped_frames;
         if dropped > self.reported_drops && now >= self.next_overrun_report_ns {
-            self.calls.emit(Event::Overrun { dropped_frames: dropped - self.reported_drops });
+            self.calls.emit(Event::Overrun {
+                dropped_frames: dropped - self.reported_drops,
+            });
             self.reported_drops = dropped;
             self.next_overrun_report_ns = now + LOSS_REPORT_NS;
         }
@@ -709,8 +824,8 @@ fn millis(ns: i64) -> u64 {
 mod tests {
     use super::*;
     use crate::ioproc::tests::{buffer, call, list, time};
-    use crate::packetizer::tests::{Owned, drain};
     use crate::packetizer::Packetizer;
+    use crate::packetizer::tests::{Owned, drain};
     use objc2_core_audio_types::AudioTimeStampFlags;
     use std::collections::{HashMap, HashSet};
     use std::sync::mpsc;
@@ -756,7 +871,11 @@ mod tests {
                 log: Vec::new(),
                 objects: HashMap::from([(PID, PROCESS)]),
                 alive: HashSet::from([PID]),
-                format: TapFormat { sample_rate: 48_000.0, channels: 2, float32: true },
+                format: TapFormat {
+                    sample_rate: 48_000.0,
+                    channels: 2,
+                    float32: true,
+                },
                 device_alive: true,
                 fail: HashMap::new(),
                 delay_ns: HashMap::new(),
@@ -786,7 +905,11 @@ mod tests {
             let context = unsafe { self.contexts[&proc].as_ref() };
             let mut data = vec![0.25f32; frames * 2];
             let list = list(&[buffer(&mut data, 2)]);
-            let stamp = time(sample_time as u64 * 500, sample_time, AudioTimeStampFlags::SampleHostTimeValid);
+            let stamp = time(
+                sample_time as u64 * 500,
+                sample_time,
+                AudioTimeStampFlags::SampleHostTimeValid,
+            );
             call(context, Some(&list), Some(&stamp));
         }
 
@@ -817,7 +940,10 @@ mod tests {
         fn create_tap(&mut self, process: ObjectId) -> Result<TapObject, Status> {
             self.step(HalCall::CreateTap, Logged::CreateTap(process))?;
             let id = self.id();
-            Ok(TapObject { id, uid: format!("tap-{id}") })
+            Ok(TapObject {
+                id,
+                uid: format!("tap-{id}"),
+            })
         }
 
         fn tap_format(&mut self, tap: ObjectId) -> Result<TapFormat, Status> {
@@ -830,7 +956,10 @@ mod tests {
         }
 
         fn create_aggregate(&mut self, tap_uid: &str, _pid: i32) -> Result<ObjectId, Status> {
-            self.step(HalCall::CreateAggregate, Logged::CreateAggregate(tap_uid.into()))?;
+            self.step(
+                HalCall::CreateAggregate,
+                Logged::CreateAggregate(tap_uid.into()),
+            )?;
             Ok(self.id())
         }
 
@@ -843,7 +972,11 @@ mod tests {
             self.step(HalCall::DestroyAggregate, Logged::DestroyAggregate(device))
         }
 
-        fn create_io_proc(&mut self, device: ObjectId, context: NonNull<IoContext>) -> Result<u32, Status> {
+        fn create_io_proc(
+            &mut self,
+            device: ObjectId,
+            context: NonNull<IoContext>,
+        ) -> Result<u32, Status> {
             self.step(HalCall::CreateIoProc, Logged::CreateProc(device))?;
             let id = self.id();
             self.contexts.insert(id, context);
@@ -878,7 +1011,6 @@ mod tests {
         }
     }
 
-
     // The fake numbers objects from 101 in creation order: the two system listeners, then the
     // tap, its listener, the aggregate, its two listeners and the IOProc.
     const PROCESS_LIST_KEY: u32 = 101;
@@ -902,7 +1034,12 @@ mod tests {
         let (tx, events) = mpsc::channel();
         let latch: &'static Latch = Box::leak(Box::new(Latch::new()));
         let controller = Controller::new(Fake::new(), ring.clone(), tx, latch, settings, 1);
-        Rig { controller, events, packetizer: Packetizer::new(ring, 240, 0), latch }
+        Rig {
+            controller,
+            events,
+            packetizer: Packetizer::new(ring, 240, 0),
+            latch,
+        }
     }
 
     fn settings() -> Settings {
@@ -936,7 +1073,11 @@ mod tests {
             self.controller.handle(Command::Capture(PID));
             self.controller.hal().fire(512, 0.0);
             self.controller.tick();
-            assert!(self.events().iter().any(|e| matches!(e, Event::Receiving { .. })));
+            assert!(
+                self.events()
+                    .iter()
+                    .any(|e| matches!(e, Event::Receiving { .. }))
+            );
             self.log();
         }
     }
@@ -974,11 +1115,23 @@ mod tests {
         let mut rig = rig();
         rig.controller.handle(Command::Capture(PID));
         assert_eq!(rig.log(), open_calls());
-        assert_eq!(rig.events(), vec![Event::Started { pid: PID, sample_rate: 48_000 }]);
+        assert_eq!(
+            rig.events(),
+            vec![Event::Started {
+                pid: PID,
+                sample_rate: 48_000
+            }]
+        );
 
         rig.controller.hal().fire(512, 0.0);
         rig.controller.tick();
-        assert_eq!(rig.events(), vec![Event::Receiving { pid: PID, after_ms: 0 }]);
+        assert_eq!(
+            rig.events(),
+            vec![Event::Receiving {
+                pid: PID,
+                after_ms: 0
+            }]
+        );
         assert!(rig.latch.granted());
         let items = drain(&mut rig.packetizer);
         assert!(matches!(items[0], Owned::Start(_)));
@@ -986,12 +1139,28 @@ mod tests {
 
         rig.controller.handle(Command::Stop);
         assert_eq!(rig.log(), close_calls());
-        assert_eq!(rig.events(), vec![Event::Ended { pid: PID, reason: EndReason::Stopped }]);
+        assert_eq!(
+            rig.events(),
+            vec![Event::Ended {
+                pid: PID,
+                reason: EndReason::Stopped
+            }]
+        );
         let items = drain(&mut rig.packetizer);
-        assert_eq!(items.last(), Some(&Owned::End(0)), "the retired epoch ends the stream");
+        assert_eq!(
+            items.last(),
+            Some(&Owned::End(0)),
+            "the retired epoch ends the stream"
+        );
 
         rig.controller.shutdown();
-        assert_eq!(rig.log(), vec![Logged::Unlisten(PROCESS_LIST_KEY), Logged::Unlisten(RESTART_KEY)]);
+        assert_eq!(
+            rig.log(),
+            vec![
+                Logged::Unlisten(PROCESS_LIST_KEY),
+                Logged::Unlisten(RESTART_KEY)
+            ]
+        );
     }
 
     #[test]
@@ -1008,8 +1177,17 @@ mod tests {
 
         rig.controller.hal().objects.insert(PID, PROCESS);
         rig.controller.handle(Command::Changed(Watch::ProcessList));
-        assert_eq!(rig.log()[..2], [Logged::Translate(PID), Logged::CreateTap(PROCESS)]);
-        assert_eq!(rig.events(), vec![Event::Started { pid: PID, sample_rate: 48_000 }]);
+        assert_eq!(
+            rig.log()[..2],
+            [Logged::Translate(PID), Logged::CreateTap(PROCESS)]
+        );
+        assert_eq!(
+            rig.events(),
+            vec![Event::Started {
+                pid: PID,
+                sample_rate: 48_000
+            }]
+        );
     }
 
     #[test]
@@ -1021,7 +1199,13 @@ mod tests {
         rig.log();
         rig.controller.hal().alive.clear();
         rig.controller.tick();
-        assert_eq!(rig.events(), vec![Event::Ended { pid: PID, reason: EndReason::ProcessExited }]);
+        assert_eq!(
+            rig.events(),
+            vec![Event::Ended {
+                pid: PID,
+                reason: EndReason::ProcessExited
+            }]
+        );
         assert!(rig.log().is_empty());
     }
 
@@ -1031,7 +1215,13 @@ mod tests {
         rig.controller.hal().objects.clear();
         rig.controller.hal().alive.clear();
         rig.controller.handle(Command::Capture(PID));
-        assert_eq!(rig.events(), vec![Event::Ended { pid: PID, reason: EndReason::ProcessExited }]);
+        assert_eq!(
+            rig.events(),
+            vec![Event::Ended {
+                pid: PID,
+                reason: EndReason::ProcessExited
+            }]
+        );
     }
 
     #[test]
@@ -1057,7 +1247,13 @@ mod tests {
         let mut expected = vec![Logged::Translate(PID)];
         expected.extend(close_calls());
         assert_eq!(rig.log(), expected);
-        assert_eq!(rig.events(), vec![Event::Ended { pid: PID, reason: EndReason::ProcessExited }]);
+        assert_eq!(
+            rig.events(),
+            vec![Event::Ended {
+                pid: PID,
+                reason: EndReason::ProcessExited
+            }]
+        );
     }
 
     #[test]
@@ -1067,7 +1263,13 @@ mod tests {
         rig.controller.hal().alive.clear();
         rig.controller.tick();
         assert_eq!(rig.log(), close_calls());
-        assert_eq!(rig.events(), vec![Event::Ended { pid: PID, reason: EndReason::ProcessExited }]);
+        assert_eq!(
+            rig.events(),
+            vec![Event::Ended {
+                pid: PID,
+                reason: EndReason::ProcessExited
+            }]
+        );
     }
 
     #[test]
@@ -1076,30 +1278,62 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let marker = dir.join("blocked");
         let _ = std::fs::remove_file(&marker);
-        let mut rig = rig_with(Settings { marker: Some(marker.clone()), ..settings() });
-        rig.controller.hal().delay_ns.insert(HalCall::CreateIoProc, 60_000_000_000);
+        let mut rig = rig_with(Settings {
+            marker: Some(marker.clone()),
+            ..settings()
+        });
+        rig.controller
+            .hal()
+            .delay_ns
+            .insert(HalCall::CreateIoProc, 60_000_000_000);
         rig.controller.handle(Command::Capture(PID));
         assert_eq!(rig.log().last(), Some(&Logged::CreateProc(AGGREGATE)));
-        let reason = BlockReason::Stalled { call: HalCall::CreateIoProc, elapsed_ms: 60_000 };
+        let reason = BlockReason::Stalled {
+            call: HalCall::CreateIoProc,
+            elapsed_ms: 60_000,
+        };
         assert_eq!(rig.events(), vec![Event::Blocked(reason.clone())]);
         assert!(marker.exists());
 
         rig.controller.hal().fire(512, 0.0);
-        assert_eq!(rig.controller.ring.stats().chunks, 0, "the context is retired");
+        assert_eq!(
+            rig.controller.ring.stats().chunks,
+            0,
+            "the context is retired"
+        );
         rig.controller.handle(Command::Capture(PID + 1));
-        rig.controller.handle(Command::Changed(Watch::ServiceRestarted));
+        rig.controller
+            .handle(Command::Changed(Watch::ServiceRestarted));
         rig.controller.handle(Command::Changed(Watch::TapFormat));
         rig.controller.handle(Command::Stop);
         rig.advance(10_000_000_000);
         rig.controller.tick();
         rig.controller.shutdown();
-        assert!(rig.log().is_empty(), "no HAL call after the stall, not even teardown");
-        assert_eq!(rig.events(), vec![Event::Refused { pid: PID + 1, reason }]);
+        assert!(
+            rig.log().is_empty(),
+            "no HAL call after the stall, not even teardown"
+        );
+        assert_eq!(
+            rig.events(),
+            vec![Event::Refused {
+                pid: PID + 1,
+                reason
+            }]
+        );
 
-        let mut later = rig_with(Settings { marker: Some(marker.clone()), ..settings() });
+        let mut later = rig_with(Settings {
+            marker: Some(marker.clone()),
+            ..settings()
+        });
         later.controller.handle(Command::Capture(PID));
         assert!(later.log().is_empty());
-        assert!(matches!(later.events()[..], [Event::Refused { reason: BlockReason::Recorded(_), .. }]));
+        assert!(matches!(
+            later.events()[..],
+            [Event::Refused {
+                reason: BlockReason::Recorded(_),
+                ..
+            }]
+        ));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
@@ -1114,7 +1348,12 @@ mod tests {
         assert!(rig.events().is_empty());
         rig.advance(1_000_000_000);
         rig.controller.tick();
-        assert_eq!(rig.events(), vec![Event::Blocked(BlockReason::NoCallbacks { waited_ms: 5_000 })]);
+        assert_eq!(
+            rig.events(),
+            vec![Event::Blocked(BlockReason::NoCallbacks {
+                waited_ms: 5_000
+            })]
+        );
         rig.controller.handle(Command::Stop);
         rig.controller.shutdown();
         assert!(rig.log().is_empty());
@@ -1125,14 +1364,23 @@ mod tests {
     fn a_stall_during_teardown_leaves_the_rest_alone() {
         let mut rig = rig();
         rig.running();
-        rig.controller.hal().delay_ns.insert(HalCall::StopIo, 30_000_000_000);
+        rig.controller
+            .hal()
+            .delay_ns
+            .insert(HalCall::StopIo, 30_000_000_000);
         rig.controller.handle(Command::Stop);
         assert_eq!(rig.log(), close_calls()[..3]);
         assert_eq!(
             rig.events(),
             vec![
-                Event::Blocked(BlockReason::Stalled { call: HalCall::StopIo, elapsed_ms: 30_000 }),
-                Event::Ended { pid: PID, reason: EndReason::Blocked },
+                Event::Blocked(BlockReason::Stalled {
+                    call: HalCall::StopIo,
+                    elapsed_ms: 30_000
+                }),
+                Event::Ended {
+                    pid: PID,
+                    reason: EndReason::Blocked
+                },
             ]
         );
         rig.controller.shutdown();
@@ -1142,13 +1390,23 @@ mod tests {
     #[test]
     fn a_failed_call_ends_the_capture_and_is_not_retried() {
         let mut rig = rig();
-        rig.controller.hal().fail.insert(HalCall::CreateTap, 560_947_818);
+        rig.controller
+            .hal()
+            .fail
+            .insert(HalCall::CreateTap, 560_947_818);
         rig.controller.handle(Command::Capture(PID));
         assert_eq!(
             rig.events(),
             vec![
-                Event::Failed { pid: PID, call: HalCall::CreateTap, status: 560_947_818 },
-                Event::Ended { pid: PID, reason: EndReason::Failed },
+                Event::Failed {
+                    pid: PID,
+                    call: HalCall::CreateTap,
+                    status: 560_947_818
+                },
+                Event::Ended {
+                    pid: PID,
+                    reason: EndReason::Failed
+                },
             ]
         );
         rig.log();
@@ -1165,22 +1423,50 @@ mod tests {
         rig.controller.hal().fail.insert(HalCall::StartIo, -50);
         rig.controller.handle(Command::Capture(PID));
         let log = rig.log();
-        let unwound: Vec<_> = close_calls().into_iter().filter(|l| *l != Logged::Stop(PROC)).collect();
+        let unwound: Vec<_> = close_calls()
+            .into_iter()
+            .filter(|l| *l != Logged::Stop(PROC))
+            .collect();
         assert_eq!(log[open_calls().len()..], unwound);
-        assert_eq!(rig.events().last(), Some(&Event::Ended { pid: PID, reason: EndReason::Failed }));
+        assert_eq!(
+            rig.events().last(),
+            Some(&Event::Ended {
+                pid: PID,
+                reason: EndReason::Failed
+            })
+        );
     }
 
     #[test]
     fn an_unreadable_format_is_reported_and_the_tap_destroyed() {
         let mut rig = rig();
-        rig.controller.hal().format = TapFormat { sample_rate: 48_000.0, channels: 2, float32: false };
+        rig.controller.hal().format = TapFormat {
+            sample_rate: 48_000.0,
+            channels: 2,
+            float32: false,
+        };
         rig.controller.handle(Command::Capture(PID));
-        assert_eq!(rig.log()[3..], [Logged::CreateTap(PROCESS), Logged::ReadFormat(TAP), Logged::DestroyTap(TAP)]);
+        assert_eq!(
+            rig.log()[3..],
+            [
+                Logged::CreateTap(PROCESS),
+                Logged::ReadFormat(TAP),
+                Logged::DestroyTap(TAP)
+            ]
+        );
         assert_eq!(
             rig.events(),
             vec![
-                Event::UnsupportedFormat { pid: PID, sample_rate: 48_000.0, channels: 2, float32: false },
-                Event::Ended { pid: PID, reason: EndReason::Failed },
+                Event::UnsupportedFormat {
+                    pid: PID,
+                    sample_rate: 48_000.0,
+                    channels: 2,
+                    float32: false
+                },
+                Event::Ended {
+                    pid: PID,
+                    reason: EndReason::Failed
+                },
             ]
         );
     }
@@ -1204,12 +1490,20 @@ mod tests {
         assert_eq!(rig.log(), expected);
         assert_eq!(
             rig.events(),
-            vec![Event::Restarted { pid: PID, reason: RestartReason::FormatChanged, sample_rate: 44_100 }]
+            vec![Event::Restarted {
+                pid: PID,
+                reason: RestartReason::FormatChanged,
+                sample_rate: 44_100
+            }]
         );
         rig.controller.hal().fire(512, 0.0);
         let items = drain(&mut rig.packetizer);
         assert!(items.contains(&Owned::End(0)));
-        assert!(items.iter().any(|i| matches!(i, Owned::Start(f) if f.stream == 1 && f.sample_rate == 44_100)));
+        assert!(
+            items
+                .iter()
+                .any(|i| matches!(i, Owned::Start(f) if f.stream == 1 && f.sample_rate == 44_100))
+        );
     }
 
     #[test]
@@ -1232,7 +1526,13 @@ mod tests {
         let mut expected = vec![Logged::ReadFormat(TAP)];
         expected.extend(close_calls());
         assert_eq!(rig.log(), expected);
-        assert_eq!(rig.events(), vec![Event::Ended { pid: PID, reason: EndReason::FormatChanged }]);
+        assert_eq!(
+            rig.events(),
+            vec![Event::Ended {
+                pid: PID,
+                reason: EndReason::FormatChanged
+            }]
+        );
     }
 
     #[test]
@@ -1244,7 +1544,11 @@ mod tests {
         assert_eq!(rig.log()[0], Logged::DeviceAlive(AGGREGATE));
         assert_eq!(
             rig.events(),
-            vec![Event::Restarted { pid: PID, reason: RestartReason::DeviceDied, sample_rate: 48_000 }]
+            vec![Event::Restarted {
+                pid: PID,
+                reason: RestartReason::DeviceDied,
+                sample_rate: 48_000
+            }]
         );
     }
 
@@ -1252,7 +1556,8 @@ mod tests {
     fn a_service_restart_rebuilds_from_scratch_without_touching_stale_ids() {
         let mut rig = rig();
         rig.running();
-        rig.controller.handle(Command::Changed(Watch::ServiceRestarted));
+        rig.controller
+            .handle(Command::Changed(Watch::ServiceRestarted));
         assert_eq!(
             rig.log(),
             vec![
@@ -1272,7 +1577,11 @@ mod tests {
         );
         assert_eq!(
             rig.events(),
-            vec![Event::Restarted { pid: PID, reason: RestartReason::ServiceRestarted, sample_rate: 48_000 }]
+            vec![Event::Restarted {
+                pid: PID,
+                reason: RestartReason::ServiceRestarted,
+                sample_rate: 48_000
+            }]
         );
     }
 
@@ -1282,21 +1591,37 @@ mod tests {
         rig.controller.handle(Command::Capture(PID));
         rig.events();
         rig.log();
-        rig.controller.handle(Command::Changed(Watch::ServiceRestarted));
+        rig.controller
+            .handle(Command::Changed(Watch::ServiceRestarted));
         assert_eq!(rig.log(), vec![Logged::Forget]);
-        assert_eq!(rig.events(), vec![Event::Ended { pid: PID, reason: EndReason::ServiceRestarted }]);
+        assert_eq!(
+            rig.events(),
+            vec![Event::Ended {
+                pid: PID,
+                reason: EndReason::ServiceRestarted
+            }]
+        );
     }
 
     #[test]
     fn slow_calls_are_reported_and_tolerated() {
         let mut rig = rig();
-        rig.controller.hal().delay_ns.insert(HalCall::CreateIoProc, 2_000_000_000);
+        rig.controller
+            .hal()
+            .delay_ns
+            .insert(HalCall::CreateIoProc, 2_000_000_000);
         rig.controller.handle(Command::Capture(PID));
         assert_eq!(
             rig.events(),
             vec![
-                Event::SlowCall { call: HalCall::CreateIoProc, elapsed_ms: 2_000 },
-                Event::Started { pid: PID, sample_rate: 48_000 },
+                Event::SlowCall {
+                    call: HalCall::CreateIoProc,
+                    elapsed_ms: 2_000
+                },
+                Event::Started {
+                    pid: PID,
+                    sample_rate: 48_000
+                },
             ]
         );
     }
@@ -1310,12 +1635,21 @@ mod tests {
         rig.controller.handle(Command::Capture(PID + 1));
         let log = rig.log();
         assert_eq!(log[..close_calls().len()], close_calls());
-        assert_eq!(log[close_calls().len()..][..2], [Logged::Translate(PID + 1), Logged::CreateTap(PROCESS + 1)]);
+        assert_eq!(
+            log[close_calls().len()..][..2],
+            [Logged::Translate(PID + 1), Logged::CreateTap(PROCESS + 1)]
+        );
         assert_eq!(
             rig.events(),
             vec![
-                Event::Ended { pid: PID, reason: EndReason::Replaced },
-                Event::Started { pid: PID + 1, sample_rate: 48_000 },
+                Event::Ended {
+                    pid: PID,
+                    reason: EndReason::Replaced
+                },
+                Event::Started {
+                    pid: PID + 1,
+                    sample_rate: 48_000
+                },
             ]
         );
     }
@@ -1331,14 +1665,29 @@ mod tests {
         rig.controller.tick();
         assert_eq!(
             rig.events(),
-            vec![Event::Receiving { pid: PID, after_ms: 0 }, Event::Unreadable { pid: PID, callbacks: 3 }]
+            vec![
+                Event::Receiving {
+                    pid: PID,
+                    after_ms: 0
+                },
+                Event::Unreadable {
+                    pid: PID,
+                    callbacks: 3
+                }
+            ]
         );
         rig.controller.hal().fire_unreadable();
         rig.controller.tick();
         assert!(rig.events().is_empty(), "at most once a second");
         rig.advance(LOSS_REPORT_NS);
         rig.controller.tick();
-        assert_eq!(rig.events(), vec![Event::Unreadable { pid: PID, callbacks: 1 }]);
+        assert_eq!(
+            rig.events(),
+            vec![Event::Unreadable {
+                pid: PID,
+                callbacks: 1
+            }]
+        );
     }
 
     #[test]
@@ -1349,12 +1698,22 @@ mod tests {
             rig.controller.hal().fire(512, i as f64 * 512.0);
         }
         rig.controller.tick();
-        assert_eq!(rig.events(), vec![Event::Overrun { dropped_frames: 9 * 512 }]);
+        assert_eq!(
+            rig.events(),
+            vec![Event::Overrun {
+                dropped_frames: 9 * 512
+            }]
+        );
         rig.controller.hal().fire(512, 50_000.0);
         rig.controller.tick();
         assert!(rig.events().is_empty());
         rig.advance(LOSS_REPORT_NS);
         rig.controller.tick();
-        assert_eq!(rig.events(), vec![Event::Overrun { dropped_frames: 512 }]);
+        assert_eq!(
+            rig.events(),
+            vec![Event::Overrun {
+                dropped_frames: 512
+            }]
+        );
     }
 }

@@ -66,7 +66,8 @@ pub struct AudioCapture {
 impl AudioCapture {
     pub fn spawn(source: Source, config: Config) -> io::Result<(AudioCapture, Packetizer)> {
         let ring = Arc::new(CaptureRing::new(config.ring_frames));
-        let packetizer = Packetizer::new(ring.clone(), config.frames_per_packet, config.first_stream);
+        let packetizer =
+            Packetizer::new(ring.clone(), config.frames_per_packet, config.first_stream);
         let (commands, command_rx) = mpsc::channel();
         let (event_tx, events) = mpsc::channel();
         let thread_ring = ring.clone();
@@ -76,7 +77,15 @@ impl AudioCapture {
                 .name("tether-audio-synthetic".into())
                 .spawn(move || synthetic::run(tone, thread_ring, event_tx, command_rx, 1))?,
         };
-        Ok((AudioCapture { commands, events, ring, thread: Some(thread) }, packetizer))
+        Ok((
+            AudioCapture {
+                commands,
+                events,
+                ring,
+                thread: Some(thread),
+            },
+            packetizer,
+        ))
     }
 
     /// Captures `pid` from now on, ending any current capture first. A process that has not
@@ -140,7 +149,9 @@ fn spawn_tap(
     // A tap operation issued while a capture prompt is pending wedges coreaudiod; unit tests
     // use the fake HAL and the synthetic source only.
     if cfg!(test) {
-        return Err(io::Error::other("unit tests never touch the Core Audio HAL"));
+        return Err(io::Error::other(
+            "unit tests never touch the Core Audio HAL",
+        ));
     }
     // TCC holds a launchd job responsible for itself, and any other process for the app that
     // started it (a terminal, an IDE), which would get the prompt, and the grant, instead.
@@ -163,16 +174,26 @@ fn spawn_tap(
         slow_call: Duration::from_millis(500),
         marker: config.block_marker,
     };
-    let spawned = thread::Builder::new().name("tether-audio-control".into()).spawn(move || {
-        struct Release;
-        impl Drop for Release {
-            fn drop(&mut self) {
-                TAP_THREAD.store(false, Ordering::Release);
+    let spawned = thread::Builder::new()
+        .name("tether-audio-control".into())
+        .spawn(move || {
+            struct Release;
+            impl Drop for Release {
+                fn drop(&mut self) {
+                    TAP_THREAD.store(false, Ordering::Release);
+                }
             }
-        }
-        let _release = Release;
-        Controller::new(CoreAudio::new(notify), ring, events, &latch::PROCESS, settings, 1).run(commands);
-    });
+            let _release = Release;
+            Controller::new(
+                CoreAudio::new(notify),
+                ring,
+                events,
+                &latch::PROCESS,
+                settings,
+                1,
+            )
+            .run(commands);
+        });
     if spawned.is_err() {
         TAP_THREAD.store(false, Ordering::Release);
     }
@@ -189,16 +210,31 @@ mod tests {
 
     #[test]
     fn the_synthetic_source_streams_in_real_time_through_the_packetizer() {
-        let tone = Tone { chunk_frames: 480, ..Tone::default() };
-        let (capture, mut packetizer) =
-            AudioCapture::spawn(Source::Synthetic(tone), Config { first_stream: 9, ..Config::default() }).unwrap();
-        assert!(capture.next_event(Duration::from_millis(100)).is_none(), "idle until told");
+        let tone = Tone {
+            chunk_frames: 480,
+            ..Tone::default()
+        };
+        let (capture, mut packetizer) = AudioCapture::spawn(
+            Source::Synthetic(tone),
+            Config {
+                first_stream: 9,
+                ..Config::default()
+            },
+        )
+        .unwrap();
+        assert!(
+            capture.next_event(Duration::from_millis(100)).is_none(),
+            "idle until told"
+        );
 
         let started = now_ns();
         capture.capture(1234);
         assert_eq!(
             capture.next_event(Duration::from_secs(1)),
-            Some(Event::Started { pid: 1234, sample_rate: 48_000 })
+            Some(Event::Started {
+                pid: 1234,
+                sample_rate: 48_000
+            })
         );
 
         let mut starts = Vec::new();
@@ -209,7 +245,9 @@ mod tests {
                 match item {
                     Item::Start(format) => starts.push(format),
                     Item::Packet(p) => {
-                        assert!(p.host_time_ns >= started - 1_000_000 && p.host_time_ns <= now_ns());
+                        assert!(
+                            p.host_time_ns >= started - 1_000_000 && p.host_time_ns <= now_ns()
+                        );
                         assert!(p.arrival_ns >= p.host_time_ns);
                         frames.push((p.first_frame, p.host_time_ns, p.frames()));
                     }
@@ -218,22 +256,36 @@ mod tests {
             }
             packetizer.wait(Duration::from_millis(20));
         }
-        assert_eq!(capture.next_event(Duration::from_secs(1)), Some(Event::Receiving { pid: 1234, after_ms: 0 }));
+        assert_eq!(
+            capture.next_event(Duration::from_secs(1)),
+            Some(Event::Receiving {
+                pid: 1234,
+                after_ms: 0
+            })
+        );
         assert_eq!(starts.len(), 1);
         assert_eq!(starts[0].stream, 9);
 
         let produced = frames.iter().map(|f| f.2).sum::<usize>();
-        assert!((9_600..=24_000).contains(&produced), "up to 400 ms of audio: {produced}");
+        assert!(
+            (9_600..=24_000).contains(&produced),
+            "up to 400 ms of audio: {produced}"
+        );
         for pair in frames.windows(2) {
             assert_eq!(pair[1].0, pair[0].0 + pair[0].2 as u64, "contiguous");
         }
-        let fit = crate::analysis::fit_clock(&frames.iter().map(|f| (f.0, f.1)).collect::<Vec<_>>()).unwrap();
+        let fit =
+            crate::analysis::fit_clock(&frames.iter().map(|f| (f.0, f.1)).collect::<Vec<_>>())
+                .unwrap();
         assert!((fit.rate_hz - 48_000.0).abs() < 1.0, "{fit:?}");
 
         capture.stop();
         assert_eq!(
             capture.next_event(Duration::from_secs(1)),
-            Some(Event::Ended { pid: 1234, reason: EndReason::Stopped })
+            Some(Event::Ended {
+                pid: 1234,
+                reason: EndReason::Stopped
+            })
         );
         let mut ended = false;
         let deadline = Instant::now() + Duration::from_secs(1);
@@ -263,20 +315,59 @@ mod tests {
 
     #[test]
     fn a_second_capture_replaces_the_first_with_a_new_stream() {
-        let (capture, mut packetizer) = AudioCapture::spawn(Source::Synthetic(Tone::default()), Config::default()).unwrap();
+        let (capture, mut packetizer) =
+            AudioCapture::spawn(Source::Synthetic(Tone::default()), Config::default()).unwrap();
         let mut events = Vec::new();
         capture.capture(1);
-        wait_for(&capture, &Event::Receiving { pid: 1, after_ms: 0 }, &mut events);
+        wait_for(
+            &capture,
+            &Event::Receiving {
+                pid: 1,
+                after_ms: 0,
+            },
+            &mut events,
+        );
         capture.capture(2);
-        wait_for(&capture, &Event::Receiving { pid: 2, after_ms: 0 }, &mut events);
+        wait_for(
+            &capture,
+            &Event::Receiving {
+                pid: 2,
+                after_ms: 0,
+            },
+            &mut events,
+        );
         capture.stop();
-        wait_for(&capture, &Event::Ended { pid: 2, reason: EndReason::Stopped }, &mut events);
-        assert!(events.contains(&Event::Ended { pid: 1, reason: EndReason::Replaced }));
+        wait_for(
+            &capture,
+            &Event::Ended {
+                pid: 2,
+                reason: EndReason::Stopped,
+            },
+            &mut events,
+        );
+        assert!(events.contains(&Event::Ended {
+            pid: 1,
+            reason: EndReason::Replaced
+        }));
 
-        let items: Vec<Owned> =
-            drain(&mut packetizer).into_iter().filter(|item| !matches!(item, Owned::Packet { .. })).collect();
-        let format = |stream| crate::StreamFormat { stream, sample_rate: 48_000, channels: 2 };
-        assert_eq!(items, vec![Owned::Start(format(0)), Owned::End(0), Owned::Start(format(1)), Owned::End(1)]);
+        let items: Vec<Owned> = drain(&mut packetizer)
+            .into_iter()
+            .filter(|item| !matches!(item, Owned::Packet { .. }))
+            .collect();
+        let format = |stream| crate::StreamFormat {
+            stream,
+            sample_rate: 48_000,
+            channels: 2,
+        };
+        assert_eq!(
+            items,
+            vec![
+                Owned::Start(format(0)),
+                Owned::End(0),
+                Owned::Start(format(1)),
+                Owned::End(1)
+            ]
+        );
         assert!(capture.shutdown(Duration::from_secs(1)));
     }
 }

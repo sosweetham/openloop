@@ -6,7 +6,8 @@ use std::env;
 use std::path::PathBuf;
 
 fn main() {
-    let plist = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("set by cargo")).join("Info.plist");
+    let plist =
+        PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("set by cargo")).join("Info.plist");
     println!("cargo:rerun-if-changed={}", plist.display());
     if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
         println!(

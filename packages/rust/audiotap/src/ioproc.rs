@@ -28,7 +28,12 @@ pub(crate) struct IoContext {
 }
 
 impl IoContext {
-    pub fn new(ring: Arc<CaptureRing>, timebase: Timebase, epoch: u32, sample_rate: u32) -> IoContext {
+    pub fn new(
+        ring: Arc<CaptureRing>,
+        timebase: Timebase,
+        epoch: u32,
+        sample_rate: u32,
+    ) -> IoContext {
         IoContext {
             ring,
             timebase,
@@ -84,7 +89,9 @@ impl IoContext {
                 t.mFlags
                     .contains(AudioTimeStampFlags::HostTimeValid)
                     .then(|| self.timebase.ticks_to_ns(t.mHostTime)),
-                t.mFlags.contains(AudioTimeStampFlags::SampleTimeValid).then_some(t.mSampleTime),
+                t.mFlags
+                    .contains(AudioTimeStampFlags::SampleTimeValid)
+                    .then_some(t.mSampleTime),
             ),
             None => (None, None),
         };
@@ -93,9 +100,18 @@ impl IoContext {
             self.unreadable.fetch_add(1, Ordering::Relaxed);
             return;
         };
-        let chunk = Chunk { epoch: self.epoch, sample_rate: self.sample_rate, host_ns, sample_time, arrival_ns };
+        let chunk = Chunk {
+            epoch: self.epoch,
+            sample_rate: self.sample_rate,
+            host_ns,
+            sample_time,
+            arrival_ns,
+        };
         // SAFETY: this context is the producer; `layout` covers `layout.frames` frames.
-        unsafe { self.ring.push(chunk, layout.frames, |dst, offset| layout.copy(dst, offset)) };
+        unsafe {
+            self.ring
+                .push(chunk, layout.frames, |dst, offset| layout.copy(dst, offset))
+        };
     }
 }
 
@@ -139,21 +155,42 @@ impl Layout {
         }
         // SAFETY: valid per the contract. The struct declares one buffer and the HAL allocates
         // `mNumberBuffers`, so they are reached through the raw pointer, not the array type.
-        let (count, buffers) =
-            unsafe { ((*list).mNumberBuffers as usize, ptr::addr_of!((*list).mBuffers).cast::<AudioBuffer>()) };
+        let (count, buffers) = unsafe {
+            (
+                (*list).mNumberBuffers as usize,
+                ptr::addr_of!((*list).mBuffers).cast::<AudioBuffer>(),
+            )
+        };
         match count {
             0 => None,
             1 => {
                 // SAFETY: one valid buffer.
                 let (data, channels, frames) = channel_data(unsafe { &*buffers })?;
-                let right = if channels >= 2 { data.wrapping_add(1) } else { data };
-                Some(Layout { left: data, right, left_stride: channels, right_stride: channels, frames })
+                let right = if channels >= 2 {
+                    data.wrapping_add(1)
+                } else {
+                    data
+                };
+                Some(Layout {
+                    left: data,
+                    right,
+                    left_stride: channels,
+                    right_stride: channels,
+                    frames,
+                })
             }
             _ => {
                 // SAFETY: at least two valid buffers.
                 let (left, left_stride, left_frames) = channel_data(unsafe { &*buffers })?;
-                let (right, right_stride, right_frames) = channel_data(unsafe { &*buffers.add(1) })?;
-                Some(Layout { left, right, left_stride, right_stride, frames: left_frames.min(right_frames) })
+                let (right, right_stride, right_frames) =
+                    channel_data(unsafe { &*buffers.add(1) })?;
+                Some(Layout {
+                    left,
+                    right,
+                    left_stride,
+                    right_stride,
+                    frames: left_frames.min(right_frames),
+                })
             }
         }
     }
@@ -164,9 +201,18 @@ impl Layout {
     /// `offset + dst.len() / CHANNELS` is at most `self.frames`.
     unsafe fn copy(&self, dst: &mut [f32], offset: usize) {
         let frames = dst.len() / CHANNELS;
-        if self.left_stride == CHANNELS && self.right_stride == CHANNELS && self.right == self.left.wrapping_add(1) {
+        if self.left_stride == CHANNELS
+            && self.right_stride == CHANNELS
+            && self.right == self.left.wrapping_add(1)
+        {
             // SAFETY: interleaved stereo, the tap's own layout: one copy of in-bounds frames.
-            unsafe { ptr::copy_nonoverlapping(self.left.add(offset * CHANNELS), dst.as_mut_ptr(), frames * CHANNELS) };
+            unsafe {
+                ptr::copy_nonoverlapping(
+                    self.left.add(offset * CHANNELS),
+                    dst.as_mut_ptr(),
+                    frames * CHANNELS,
+                )
+            };
             return;
         }
         for (i, frame) in dst.chunks_exact_mut(CHANNELS).enumerate() {
@@ -187,7 +233,11 @@ fn channel_data(buffer: &AudioBuffer) -> Option<(*const f32, usize, usize)> {
     if data.is_null() || !data.is_aligned() || channels == 0 {
         return None;
     }
-    Some((data, channels, buffer.mDataByteSize as usize / (channels * size_of::<f32>())))
+    Some((
+        data,
+        channels,
+        buffer.mDataByteSize as usize / (channels * size_of::<f32>()),
+    ))
 }
 
 #[cfg(test)]
@@ -210,14 +260,25 @@ pub(crate) mod tests {
     }
 
     pub(crate) fn list(buffers: &[AudioBuffer]) -> BufferList {
-        let empty = AudioBuffer { mNumberChannels: 0, mDataByteSize: 0, mData: ptr::null_mut() };
+        let empty = AudioBuffer {
+            mNumberChannels: 0,
+            mDataByteSize: 0,
+            mData: ptr::null_mut(),
+        };
         BufferList {
             count: buffers.len() as u32,
-            buffers: [buffers.first().copied().unwrap_or(empty), buffers.get(1).copied().unwrap_or(empty)],
+            buffers: [
+                buffers.first().copied().unwrap_or(empty),
+                buffers.get(1).copied().unwrap_or(empty),
+            ],
         }
     }
 
-    pub(crate) fn time(host_ticks: u64, sample_time: f64, flags: AudioTimeStampFlags) -> AudioTimeStamp {
+    pub(crate) fn time(
+        host_ticks: u64,
+        sample_time: f64,
+        flags: AudioTimeStampFlags,
+    ) -> AudioTimeStamp {
         // SAFETY: AudioTimeStamp is plain data; all-zero is valid.
         let mut t: AudioTimeStamp = unsafe { std::mem::zeroed() };
         t.mHostTime = host_ticks;
@@ -226,7 +287,11 @@ pub(crate) mod tests {
         t
     }
 
-    pub(crate) fn call(context: &IoContext, list: Option<&BufferList>, time: Option<&AudioTimeStamp>) {
+    pub(crate) fn call(
+        context: &IoContext,
+        list: Option<&BufferList>,
+        time: Option<&AudioTimeStamp>,
+    ) {
         let input = list.map_or(ptr::null(), |l| ptr::from_ref(l).cast::<AudioBufferList>());
         let input_time = time.map_or(ptr::null(), ptr::from_ref);
         let now = self::time(0, 0.0, AudioTimeStampFlags::empty());
@@ -251,7 +316,8 @@ pub(crate) mod tests {
             while let Some(stamp) = ring.peek() {
                 let mut frames = vec![0.0; stamp.frames as usize * CHANNELS];
                 ring.consume(stamp.position, stamp.frames as usize, |segment, offset| {
-                    frames[offset * CHANNELS..offset * CHANNELS + segment.len()].copy_from_slice(segment);
+                    frames[offset * CHANNELS..offset * CHANNELS + segment.len()]
+                        .copy_from_slice(segment);
                 });
                 ring.release_stamp();
                 out.push((stamp, frames));
@@ -272,11 +338,18 @@ pub(crate) mod tests {
         let context = context(&ring);
         let mut data: Vec<f32> = (0..512 * 2).map(|i| i as f32).collect();
         let list = list(&[buffer(&mut data, 2)]);
-        call(&context, Some(&list), Some(&time(24_000_000, 1234.0, VALID)));
+        call(
+            &context,
+            Some(&list),
+            Some(&time(24_000_000, 1234.0, VALID)),
+        );
         let got = read_all(&ring);
         assert_eq!(got.len(), 1);
         let (stamp, frames) = &got[0];
-        assert_eq!((stamp.epoch, stamp.frames, stamp.sample_rate), (4, 512, 48_000));
+        assert_eq!(
+            (stamp.epoch, stamp.frames, stamp.sample_rate),
+            (4, 512, 48_000)
+        );
         assert_eq!(stamp.host_ns, Some(1_000_000_000));
         assert_eq!(stamp.sample_time, Some(1234.0));
         assert!(stamp.arrival_ns > 0);
@@ -289,9 +362,17 @@ pub(crate) mod tests {
         let ring = Arc::new(CaptureRing::new(1024));
         let context = context(&ring);
         let mut mono = vec![0.25f32, -0.5, 0.75];
-        call(&context, Some(&list(&[buffer(&mut mono, 1)])), Some(&time(0, 0.0, VALID)));
+        call(
+            &context,
+            Some(&list(&[buffer(&mut mono, 1)])),
+            Some(&time(0, 0.0, VALID)),
+        );
         let mut quad: Vec<f32> = (0..8).map(|i| i as f32).collect();
-        call(&context, Some(&list(&[buffer(&mut quad, 4)])), Some(&time(0, 3.0, VALID)));
+        call(
+            &context,
+            Some(&list(&[buffer(&mut quad, 4)])),
+            Some(&time(0, 3.0, VALID)),
+        );
         let got = read_all(&ring);
         assert_eq!(got[0].1, vec![0.25, 0.25, -0.5, -0.5, 0.75, 0.75]);
         assert_eq!(got[1].1, vec![0.0, 1.0, 4.0, 5.0]);
@@ -303,7 +384,11 @@ pub(crate) mod tests {
         let context = context(&ring);
         let mut left = vec![1.0f32, 2.0, 3.0];
         let mut right = vec![-1.0f32, -2.0];
-        call(&context, Some(&list(&[buffer(&mut left, 1), buffer(&mut right, 1)])), Some(&time(0, 0.0, VALID)));
+        call(
+            &context,
+            Some(&list(&[buffer(&mut left, 1), buffer(&mut right, 1)])),
+            Some(&time(0, 0.0, VALID)),
+        );
         assert_eq!(read_all(&ring)[0].1, vec![1.0, -1.0, 2.0, -2.0]);
     }
 
@@ -313,8 +398,16 @@ pub(crate) mod tests {
         let context = context(&ring);
         let mut data = vec![0.0f32; 4];
         let list = list(&[buffer(&mut data, 2)]);
-        call(&context, Some(&list), Some(&time(99, 5.0, AudioTimeStampFlags::HostTimeValid)));
-        call(&context, Some(&list), Some(&time(99, 5.0, AudioTimeStampFlags::SampleTimeValid)));
+        call(
+            &context,
+            Some(&list),
+            Some(&time(99, 5.0, AudioTimeStampFlags::HostTimeValid)),
+        );
+        call(
+            &context,
+            Some(&list),
+            Some(&time(99, 5.0, AudioTimeStampFlags::SampleTimeValid)),
+        );
         call(&context, Some(&list), None);
         let got = read_all(&ring);
         assert_eq!((got[0].0.host_ns, got[0].0.sample_time), (Some(4125), None));
@@ -328,13 +421,21 @@ pub(crate) mod tests {
         let context = context(&ring);
         call(&context, None, None);
         call(&context, Some(&list(&[])), None);
-        let null = AudioBuffer { mNumberChannels: 2, mDataByteSize: 64, mData: ptr::null_mut() };
+        let null = AudioBuffer {
+            mNumberChannels: 2,
+            mDataByteSize: 64,
+            mData: ptr::null_mut(),
+        };
         call(&context, Some(&list(&[null])), None);
         let mut data = vec![0.0f32; 4];
         call(&context, Some(&list(&[buffer(&mut data, 0)])), None);
         let mut floats = [0.0f32; 16];
         let one_byte_in = floats.as_mut_ptr().cast::<u8>().wrapping_add(1);
-        let misaligned = AudioBuffer { mNumberChannels: 2, mDataByteSize: 32, mData: one_byte_in.cast() };
+        let misaligned = AudioBuffer {
+            mNumberChannels: 2,
+            mDataByteSize: 32,
+            mData: one_byte_in.cast(),
+        };
         call(&context, Some(&list(&[misaligned])), None);
         assert!(read_all(&ring).is_empty());
         assert_eq!((context.callbacks(), context.unreadable()), (5, 5));
@@ -355,7 +456,11 @@ pub(crate) mod tests {
         let context = context(&ring);
         context.retire();
         let mut data = vec![1.0f32; 4];
-        call(&context, Some(&list(&[buffer(&mut data, 2)])), Some(&time(0, 0.0, VALID)));
+        call(
+            &context,
+            Some(&list(&[buffer(&mut data, 2)])),
+            Some(&time(0, 0.0, VALID)),
+        );
         assert!(read_all(&ring).is_empty());
         assert_eq!(context.callbacks(), 0);
     }
@@ -370,7 +475,11 @@ pub(crate) mod tests {
             let list = list(&[buffer(&mut data, 2)]);
             let mut calls = 0u64;
             while calls < 2_000_000 {
-                call(&io_context, Some(&list), Some(&time(0, calls as f64 * 32.0, VALID)));
+                call(
+                    &io_context,
+                    Some(&list),
+                    Some(&time(0, calls as f64 * 32.0, VALID)),
+                );
                 calls += 1;
                 if io_context.callbacks() < calls {
                     return calls;
@@ -382,7 +491,11 @@ pub(crate) mod tests {
         context.retire();
         let written = context.callbacks();
         std::thread::sleep(Duration::from_millis(20));
-        assert_eq!(context.callbacks(), written, "nothing written after retire returned");
+        assert_eq!(
+            context.callbacks(),
+            written,
+            "nothing written after retire returned"
+        );
         io.join().unwrap();
     }
 }

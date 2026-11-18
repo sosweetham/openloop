@@ -55,7 +55,10 @@ pub fn request_permission(options: &ProbeOptions) -> io::Result<Outcome> {
     };
     let (capture, mut packetizer) = AudioCapture::spawn(Source::Tap, config)?;
     let player = Player::spawn(&silence)?;
-    log.say(&format!("tapping a silent afplay (pid {}); answer the System Audio Recording prompt with Allow", player.pid()));
+    log.say(&format!(
+        "tapping a silent afplay (pid {}); answer the System Audio Recording prompt with Allow",
+        player.pid()
+    ));
     capture.capture(player.pid());
 
     let deadline = Instant::now() + PERMISSION_TIMEOUT;
@@ -70,8 +73,12 @@ pub fn request_permission(options: &ProbeOptions) -> io::Result<Outcome> {
         log.event(&event);
         match event {
             Event::Receiving { .. } => break Outcome::Passed,
-            Event::Blocked(reason) | Event::Refused { reason, .. } => break Outcome::Blocked(reason),
-            Event::Ended { reason, .. } => break Outcome::Failed(vec![format!("capture ended: {reason:?}")]),
+            Event::Blocked(reason) | Event::Refused { reason, .. } => {
+                break Outcome::Blocked(reason);
+            }
+            Event::Ended { reason, .. } => {
+                break Outcome::Failed(vec![format!("capture ended: {reason:?}")]);
+            }
             _ => {}
         }
     };
@@ -88,17 +95,25 @@ pub fn live_check(options: &ProbeOptions) -> io::Result<Outcome> {
     let tone_path = options.out_dir.join("tone440.wav");
     let tone: Vec<i16> = (0..rate * TONE_SECONDS)
         .flat_map(|n| {
-            let v = (TONE_AMPLITUDE * (f64::from(n) * TONE_HZ / f64::from(rate) * std::f64::consts::TAU).sin() * 32768.0)
+            let v = (TONE_AMPLITUDE
+                * (f64::from(n) * TONE_HZ / f64::from(rate) * std::f64::consts::TAU).sin()
+                * 32768.0)
                 .round() as i16;
             [v, v]
         })
         .collect();
     write_wav(&tone_path, rate, CHANNELS as u16, &tone)?;
 
-    let config = Config { block_marker: options.marker.clone(), ..Config::default() };
+    let config = Config {
+        block_marker: options.marker.clone(),
+        ..Config::default()
+    };
     let (capture, mut packetizer) = AudioCapture::spawn(Source::Tap, config)?;
     let mut player = Player::spawn(&tone_path)?;
-    log.say(&format!("tapping afplay (pid {}) playing {TONE_SECONDS} s of {TONE_HZ} Hz", player.pid()));
+    log.say(&format!(
+        "tapping afplay (pid {}) playing {TONE_SECONDS} s of {TONE_HZ} Hz",
+        player.pid()
+    ));
     capture.capture(player.pid());
 
     let mut record = Recording::default();
@@ -112,16 +127,23 @@ pub fn live_check(options: &ProbeOptions) -> io::Result<Outcome> {
             match event {
                 Event::Receiving { after_ms, .. } => record.receiving_after_ms = Some(after_ms),
                 Event::Blocked(reason) | Event::Refused { reason, .. } => break Some(reason),
-                Event::Ended { reason: EndReason::ProcessExited, .. } => break None,
+                Event::Ended {
+                    reason: EndReason::ProcessExited,
+                    ..
+                } => break None,
                 Event::Ended { reason, .. } => {
                     problems.push(format!("capture ended early: {reason:?}"));
                     break None;
                 }
-                Event::Failed { call, status, .. } => problems.push(format!("{call:?} failed: {}", status_text(status))),
-                Event::Overrun { dropped_frames } => problems.push(format!("ring overran by {dropped_frames} frames")),
-                Event::Unreadable { callbacks, .. } => {
-                    problems.push(format!("{callbacks} IOProc callbacks had buffers that could not be read"))
+                Event::Failed { call, status, .. } => {
+                    problems.push(format!("{call:?} failed: {}", status_text(status)))
                 }
+                Event::Overrun { dropped_frames } => {
+                    problems.push(format!("ring overran by {dropped_frames} frames"))
+                }
+                Event::Unreadable { callbacks, .. } => problems.push(format!(
+                    "{callbacks} IOProc callbacks had buffers that could not be read"
+                )),
                 _ => {}
             }
             continue;
@@ -156,12 +178,21 @@ pub fn live_check(options: &ProbeOptions) -> io::Result<Outcome> {
     drop(player);
 
     let capture_path = options.out_dir.join("captured.wav");
-    write_wav(&capture_path, record.sample_rate.max(1), CHANNELS as u16, &record.samples)?;
+    write_wav(
+        &capture_path,
+        record.sample_rate.max(1),
+        CHANNELS as u16,
+        &record.samples,
+    )?;
     log.say(&format!("wrote {}", capture_path.display()));
     problems.extend(record.verdict(&log));
     let report = options.out_dir.join("report.txt");
     fs::write(&report, log.text())?;
-    Ok(if problems.is_empty() { Outcome::Passed } else { Outcome::Failed(problems) })
+    Ok(if problems.is_empty() {
+        Outcome::Passed
+    } else {
+        Outcome::Failed(problems)
+    })
 }
 
 /// Records a block when the HAL has not answered: the control thread is still inside a call,
@@ -251,13 +282,19 @@ impl Recording {
 
         let points: Vec<(u64, i64)> = self.packets.iter().map(|p| (p.0, p.1)).collect();
         match fit_clock(&points) {
-            Some(ClockFit { rate_hz, max_residual_ns }) => {
+            Some(ClockFit {
+                rate_hz,
+                max_residual_ns,
+            }) => {
                 log.say(&format!("capture clock: {rate_hz:.2} Hz on the Mac clock, worst packet {:.3} ms off the line", max_residual_ns / 1e6));
                 if (rate_hz / f64::from(rate) - 1.0).abs() > 0.002 {
                     problems.push(format!("capture rate {rate_hz:.1} Hz is not {rate} Hz"));
                 }
                 if max_residual_ns > 2e6 {
-                    problems.push(format!("packet times stray {:.2} ms from a straight line", max_residual_ns / 1e6));
+                    problems.push(format!(
+                        "packet times stray {:.2} ms from a straight line",
+                        max_residual_ns / 1e6
+                    ));
                 }
             }
             None => problems.push("too few packets to measure the clock".into()),
@@ -266,7 +303,11 @@ impl Recording {
         let mut handoffs: Vec<i64> = self.packets.iter().map(|p| p.3 - p.1).collect();
         delays.sort_unstable();
         handoffs.sort_unstable();
-        if let (Some(&p50), Some(&max), Some(&h50)) = (delays.get(delays.len() / 2), delays.last(), handoffs.get(handoffs.len() / 2)) {
+        if let (Some(&p50), Some(&max), Some(&h50)) = (
+            delays.get(delays.len() / 2),
+            delays.last(),
+            handoffs.get(handoffs.len() / 2),
+        ) {
             log.say(&format!(
                 "capture to IOProc: median {:.2} ms, max {:.2} ms; capture to packet: median {:.2} ms",
                 p50 as f64 / 1e6,
@@ -294,10 +335,16 @@ impl Recording {
                     problems.push(format!("only {} frames of tone", stats.frames));
                 }
                 if (stats.frequency_hz / TONE_HZ - 1.0).abs() > 0.01 {
-                    problems.push(format!("tone at {:.2} Hz, not {TONE_HZ} Hz", stats.frequency_hz));
+                    problems.push(format!(
+                        "tone at {:.2} Hz, not {TONE_HZ} Hz",
+                        stats.frequency_hz
+                    ));
                 }
                 if (stats.rms / expected_rms - 1.0).abs() > 0.1 {
-                    problems.push(format!("tone RMS {:.5}, expected {expected_rms:.5}", stats.rms));
+                    problems.push(format!(
+                        "tone RMS {:.5}, expected {expected_rms:.5}",
+                        stats.rms
+                    ));
                 }
             }
         }
@@ -343,7 +390,10 @@ struct Log {
 
 impl Log {
     fn new() -> Log {
-        Log { start: Instant::now(), lines: Default::default() }
+        Log {
+            start: Instant::now(),
+            lines: Default::default(),
+        }
     }
 
     fn say(&self, text: &str) {
@@ -354,7 +404,10 @@ impl Log {
 
     fn event(&self, event: &Event) {
         self.say(&match event {
-            Event::Failed { pid, call, status } => format!("Failed {{ pid: {pid}, call: {call:?}, status: {} }}", status_text(*status)),
+            Event::Failed { pid, call, status } => format!(
+                "Failed {{ pid: {pid}, call: {call:?}, status: {} }}",
+                status_text(*status)
+            ),
             Event::Blocked(reason) => format!("Blocked: {reason}"),
             other => format!("{other:?}"),
         });
@@ -367,7 +420,8 @@ impl Log {
 
 /// 16-bit PCM WAV.
 pub fn write_wav(path: &Path, sample_rate: u32, channels: u16, samples: &[i16]) -> io::Result<()> {
-    let data_len = u32::try_from(samples.len() * 2).map_err(|_| io::Error::other("too long for a WAV file"))?;
+    let data_len = u32::try_from(samples.len() * 2)
+        .map_err(|_| io::Error::other("too long for a WAV file"))?;
     let mut out = Vec::with_capacity(44 + data_len as usize);
     out.extend_from_slice(b"RIFF");
     out.extend_from_slice(&(36 + data_len).to_le_bytes());
@@ -402,7 +456,10 @@ mod tests {
         assert_eq!(&bytes[..4], b"RIFF");
         assert_eq!(u32::from_le_bytes(bytes[4..8].try_into().unwrap()), 44);
         assert_eq!(&bytes[8..16], b"WAVEfmt ");
-        assert_eq!(u32::from_le_bytes(bytes[28..32].try_into().unwrap()), 192_000);
+        assert_eq!(
+            u32::from_le_bytes(bytes[28..32].try_into().unwrap()),
+            192_000
+        );
         assert_eq!(&bytes[36..40], b"data");
         assert_eq!(i16::from_le_bytes([bytes[46], bytes[47]]), -1);
     }
@@ -411,8 +468,13 @@ mod tests {
     /// on the Mac then points at the capture, not at the measurement.
     #[test]
     fn the_verdict_passes_a_faithful_capture() {
-        let tone = Tone { amplitude: TONE_AMPLITUDE as f32, frequency_hz: TONE_HZ, ..Tone::default() };
-        let (capture, mut packetizer) = AudioCapture::spawn(Source::Synthetic(tone), Config::default()).unwrap();
+        let tone = Tone {
+            amplitude: TONE_AMPLITUDE as f32,
+            frequency_hz: TONE_HZ,
+            ..Tone::default()
+        };
+        let (capture, mut packetizer) =
+            AudioCapture::spawn(Source::Synthetic(tone), Config::default()).unwrap();
         capture.capture(1);
         let mut record = Recording::default();
         let until = Instant::now() + Duration::from_millis(1_400);
@@ -430,7 +492,10 @@ mod tests {
         let problems = record.verdict(&Log::new());
         assert!(problems.is_empty(), "{problems:?}");
 
-        let mut damaged = Recording { streams: vec![(0, 48_000), (1, 48_000)], ..record };
+        let mut damaged = Recording {
+            streams: vec![(0, 48_000), (1, 48_000)],
+            ..record
+        };
         damaged.samples.iter_mut().for_each(|s| *s /= 2);
         let problems = damaged.verdict(&Log::new());
         assert_eq!(problems.len(), 2, "{problems:?}");

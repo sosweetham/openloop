@@ -35,13 +35,20 @@ pub fn tone_stats(samples: &[i16], channel: usize, sample_rate: u32) -> ToneStat
         }
         _ => 0.0,
     };
-    ToneStats { frames: values.len(), rms, peak, frequency_hz }
+    ToneStats {
+        frames: values.len(),
+        rms,
+        peak,
+        frequency_hz,
+    }
 }
 
 /// The first frame with a sample on either channel above `threshold` (full scale 1.0).
 pub fn first_loud_frame(samples: &[i16], threshold: f64) -> Option<usize> {
     let limit = threshold * 32768.0;
-    samples.chunks_exact(CHANNELS).position(|frame| frame.iter().any(|&s| f64::from(s).abs() > limit))
+    samples
+        .chunks_exact(CHANNELS)
+        .position(|frame| frame.iter().any(|&s| f64::from(s).abs() > limit))
 }
 
 /// A least-squares line through `(frame index, XrTime)` pairs.
@@ -56,10 +63,18 @@ pub struct ClockFit {
 pub fn fit_clock(points: &[(u64, i64)]) -> Option<ClockFit> {
     let &(x0, y0) = points.first()?;
     let n = points.len() as f64;
-    let centered: Vec<(f64, f64)> = points.iter().map(|&(x, y)| ((x - x0) as f64, (y - y0) as f64)).collect();
-    let (mean_x, mean_y) = centered.iter().fold((0.0, 0.0), |(sx, sy), &(x, y)| (sx + x / n, sy + y / n));
+    let centered: Vec<(f64, f64)> = points
+        .iter()
+        .map(|&(x, y)| ((x - x0) as f64, (y - y0) as f64))
+        .collect();
+    let (mean_x, mean_y) = centered
+        .iter()
+        .fold((0.0, 0.0), |(sx, sy), &(x, y)| (sx + x / n, sy + y / n));
     let (sxx, sxy) = centered.iter().fold((0.0, 0.0), |(sxx, sxy), &(x, y)| {
-        (sxx + (x - mean_x) * (x - mean_x), sxy + (x - mean_x) * (y - mean_y))
+        (
+            sxx + (x - mean_x) * (x - mean_x),
+            sxy + (x - mean_x) * (y - mean_y),
+        )
     });
     if sxx == 0.0 {
         return None;
@@ -69,7 +84,10 @@ pub fn fit_clock(points: &[(u64, i64)]) -> Option<ClockFit> {
         .iter()
         .map(|&(x, y)| (y - mean_y - ns_per_frame * (x - mean_x)).abs())
         .fold(0.0, f64::max);
-    Some(ClockFit { rate_hz: 1e9 / ns_per_frame, max_residual_ns })
+    Some(ClockFit {
+        rate_hz: 1e9 / ns_per_frame,
+        max_residual_ns,
+    })
 }
 
 #[cfg(test)]
@@ -79,7 +97,9 @@ mod tests {
     fn sine(frequency: f64, amplitude: f64, rate: u32, frames: usize) -> Vec<i16> {
         (0..frames)
             .flat_map(|n| {
-                let v = (amplitude * (n as f64 * frequency / f64::from(rate) * std::f64::consts::TAU).sin() * 32768.0)
+                let v = (amplitude
+                    * (n as f64 * frequency / f64::from(rate) * std::f64::consts::TAU).sin()
+                    * 32768.0)
                     .round() as i16;
                 [v, -v]
             })
@@ -116,7 +136,10 @@ mod tests {
             .map(|i| {
                 let frame = 1_000 + i * 512;
                 let jitter = if i == 50 { 3_000 } else { 0 };
-                (frame, 5_000_000_000 + (frame as f64 * 1e9 / 48_048.0) as i64 + jitter)
+                (
+                    frame,
+                    5_000_000_000 + (frame as f64 * 1e9 / 48_048.0) as i64 + jitter,
+                )
             })
             .collect();
         let fit = fit_clock(&points).unwrap();

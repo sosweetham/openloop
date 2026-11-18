@@ -32,7 +32,13 @@ pub struct Beep {
 
 impl Default for Tone {
     fn default() -> Tone {
-        Tone { frequency_hz: 440.0, amplitude: 0.25, sample_rate: 48_000, chunk_frames: 512, beep: None }
+        Tone {
+            frequency_hz: 440.0,
+            amplitude: 0.25,
+            sample_rate: 48_000,
+            chunk_frames: 512,
+            beep: None,
+        }
     }
 }
 
@@ -44,7 +50,13 @@ pub(crate) struct Generator {
 
 impl Generator {
     pub fn new(tone: Tone, start_ns: i64) -> Generator {
-        Generator { tone: Tone { sample_rate: tone.sample_rate.max(1), ..tone }, start_ns }
+        Generator {
+            tone: Tone {
+                sample_rate: tone.sample_rate.max(1),
+                ..tone
+            },
+            start_ns,
+        }
     }
 
     pub fn host_ns(&self, frame: u64) -> i64 {
@@ -58,10 +70,16 @@ impl Generator {
             let n = first + i as u64;
             let cycles = (n as f64 * self.tone.frequency_hz / rate).fract();
             let gate = match self.tone.beep {
-                Some(beep) if beep.period_ns > 0 => self.host_ns(n).rem_euclid(beep.period_ns) < beep.on_ns,
+                Some(beep) if beep.period_ns > 0 => {
+                    self.host_ns(n).rem_euclid(beep.period_ns) < beep.on_ns
+                }
                 _ => true,
             };
-            let sample = if gate { self.tone.amplitude * (cycles * TAU).sin() as f32 } else { 0.0 };
+            let sample = if gate {
+                self.tone.amplitude * (cycles * TAU).sin() as f32
+            } else {
+                0.0
+            };
             frame.fill(sample);
         }
     }
@@ -69,7 +87,13 @@ impl Generator {
 
 /// The synthetic source's thread: answers the same commands as the tap's control thread, with
 /// the same events, and is the ring's producer while it captures.
-pub(crate) fn run(tone: Tone, ring: Arc<CaptureRing>, events: Sender<Event>, commands: Receiver<Command>, first_epoch: u32) {
+pub(crate) fn run(
+    tone: Tone,
+    ring: Arc<CaptureRing>,
+    events: Sender<Event>,
+    commands: Receiver<Command>,
+    first_epoch: u32,
+) {
     let chunk = u64::from(tone.chunk_frames.max(1));
     let mut epoch = first_epoch.max(1);
     let mut capture: Option<(i32, Generator, u64, bool)> = None;
@@ -97,7 +121,10 @@ pub(crate) fn run(tone: Tone, ring: Arc<CaptureRing>, events: Sender<Event>, com
                     epoch = epoch.checked_add(1).unwrap_or(1);
                 }
                 capture = Some((pid, Generator::new(tone, now_ns()), 0, false));
-                emit(Event::Started { pid, sample_rate: tone.sample_rate });
+                emit(Event::Started {
+                    pid,
+                    sample_rate: tone.sample_rate,
+                });
             }
             Ok(Command::Stop) => {
                 if capture.is_some() {
@@ -130,11 +157,18 @@ pub(crate) fn run(tone: Tone, ring: Arc<CaptureRing>, events: Sender<Event>, com
                 };
                 // SAFETY: this thread is the ring's only producer while it captures; the tap's
                 // control thread does not run alongside a synthetic source.
-                unsafe { ring.push(stamp, chunk as usize, |dst, offset| generator.fill(first + offset as u64, dst)) };
+                unsafe {
+                    ring.push(stamp, chunk as usize, |dst, offset| {
+                        generator.fill(first + offset as u64, dst)
+                    })
+                };
                 *produced += chunk;
                 if !*receiving {
                     *receiving = true;
-                    emit(Event::Receiving { pid: *pid, after_ms: 0 });
+                    emit(Event::Receiving {
+                        pid: *pid,
+                        after_ms: 0,
+                    });
                 }
             }
         }
@@ -157,7 +191,13 @@ mod tests {
 
     #[test]
     fn the_tone_has_its_frequency_and_level() {
-        let generator = Generator::new(Tone { amplitude: 0.5, ..Tone::default() }, 0);
+        let generator = Generator::new(
+            Tone {
+                amplitude: 0.5,
+                ..Tone::default()
+            },
+            0,
+        );
         let stats = tone_stats(&samples(&generator, 0, 48_000), 0, 48_000);
         assert!((stats.frequency_hz - 440.0).abs() < 0.5, "{stats:?}");
         assert!((stats.rms - 0.5 / 2f64.sqrt()).abs() < 0.001, "{stats:?}");
@@ -174,11 +214,24 @@ mod tests {
 
     #[test]
     fn beeps_sit_on_whole_periods_of_xrtime() {
-        let beep = Beep { period_ns: 100_000_000, on_ns: 20_000_000 };
+        let beep = Beep {
+            period_ns: 100_000_000,
+            on_ns: 20_000_000,
+        };
         // Starts 30 ms into a period, so the first beep begins 70 ms (3360 frames) in.
-        let generator = Generator::new(Tone { beep: Some(beep), ..Tone::default() }, 1_030_000_000);
+        let generator = Generator::new(
+            Tone {
+                beep: Some(beep),
+                ..Tone::default()
+            },
+            1_030_000_000,
+        );
         let s = samples(&generator, 0, 9_600);
-        let loud = |frame: usize| s[frame * CHANNELS..(frame + 48) * CHANNELS].iter().any(|v| v.abs() > 1000);
+        let loud = |frame: usize| {
+            s[frame * CHANNELS..(frame + 48) * CHANNELS]
+                .iter()
+                .any(|v| v.abs() > 1000)
+        };
         assert!(!loud(0) && !loud(3_300));
         assert!(loud(3_360) && loud(3_360 + 900));
         assert!(!loud(3_360 + 960 + 10));

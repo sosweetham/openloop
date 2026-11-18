@@ -33,7 +33,9 @@ fn main() -> std::process::ExitCode {
     // started it (the terminal), which would then own the grant and the prompt.
     // SAFETY: getppid has no preconditions.
     if unsafe { libc::getppid() } != 1 {
-        eprintln!("refusing to run: start this through packages/rust/audiotap/scripts/run-once.sh (a launchd job)");
+        eprintln!(
+            "refusing to run: start this through packages/rust/audiotap/scripts/run-once.sh (a launchd job)"
+        );
         return ExitCode::from(3);
     }
     if let Err(error) = std::fs::create_dir_all(&out_dir) {

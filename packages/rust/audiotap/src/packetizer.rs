@@ -51,7 +51,9 @@ pub enum Item<'a> {
     Start(StreamFormat),
     Packet(Packet<'a>),
     /// No more packets of `stream` will come.
-    End { stream: u16 },
+    End {
+        stream: u16,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -120,7 +122,11 @@ enum Continuity {
 }
 
 impl Packetizer {
-    pub(crate) fn new(ring: Arc<CaptureRing>, frames_per_packet: usize, first_stream: u16) -> Packetizer {
+    pub(crate) fn new(
+        ring: Arc<CaptureRing>,
+        frames_per_packet: usize,
+        first_stream: u16,
+    ) -> Packetizer {
         let frames_per_packet = frames_per_packet.clamp(1, ring.capacity_frames() / 4);
         Packetizer {
             ring,
@@ -160,10 +166,18 @@ impl Packetizer {
                     Action::Start(format) => return Some(Item::Start(format)),
                 }
             }
-            if self.open.as_ref().is_some_and(|open| open.frames == self.frames_per_packet) {
+            if self
+                .open
+                .as_ref()
+                .is_some_and(|open| open.frames == self.frames_per_packet)
+            {
                 return self.emit();
             }
-            match self.chunk.as_ref().map(|c| c.stamp.frames as usize - c.done) {
+            match self
+                .chunk
+                .as_ref()
+                .map(|c| c.stamp.frames as usize - c.done)
+            {
                 Some(0) => self.finish_chunk(),
                 Some(_) => self.copy(),
                 // SAFETY: the packetizer is the ring's only consumer.
@@ -210,13 +224,17 @@ impl Packetizer {
     fn begin(&mut self, stamp: Stamp) {
         let rate = stamp.sample_rate.max(1);
         let continued = match &self.stream {
-            Some(s) if s.epoch == stamp.epoch && s.format.sample_rate == rate => match continuity(s, &stamp) {
-                Continuity::Contiguous => Some((0, s.next_frame, s.next_host_ns)),
-                Continuity::Gap(gap) => {
-                    Some((gap, s.next_frame + gap, s.next_host_ns.map(|t| t + frames_to_ns(gap, rate))))
+            Some(s) if s.epoch == stamp.epoch && s.format.sample_rate == rate => {
+                match continuity(s, &stamp) {
+                    Continuity::Contiguous => Some((0, s.next_frame, s.next_host_ns)),
+                    Continuity::Gap(gap) => Some((
+                        gap,
+                        s.next_frame + gap,
+                        s.next_host_ns.map(|t| t + frames_to_ns(gap, rate)),
+                    )),
+                    Continuity::Restart => None,
                 }
-                Continuity::Restart => None,
-            },
+            }
             _ => None,
         };
         let (first_frame, host_ns) = match continued {
@@ -242,7 +260,12 @@ impl Packetizer {
             .host_ns
             .or(host_ns)
             .unwrap_or_else(|| stamp.arrival_ns - frames_to_ns(u64::from(stamp.frames), rate));
-        self.chunk = Some(Cursor { stamp, done: 0, first_frame, host_ns });
+        self.chunk = Some(Cursor {
+            stamp,
+            done: 0,
+            first_frame,
+            host_ns,
+        });
     }
 
     fn restart(&mut self, epoch: u32, rate: u32) {
@@ -250,7 +273,11 @@ impl Packetizer {
             self.pending.push_back(Action::Flush);
             self.pending.push_back(Action::End(old.format.stream));
         }
-        let format = StreamFormat { stream: self.next_stream, sample_rate: rate, channels: CHANNELS as u8 };
+        let format = StreamFormat {
+            stream: self.next_stream,
+            sample_rate: rate,
+            channels: CHANNELS as u8,
+        };
         self.next_stream = self.next_stream.wrapping_add(1);
         self.pending.push_back(Action::Start(format));
         self.stream = Some(Stream {
@@ -271,7 +298,8 @@ impl Packetizer {
         };
         let rate = stream.format.sample_rate;
         let filled = self.open.as_ref().map_or(0, |open| open.frames);
-        let take = (cursor.stamp.frames as usize - cursor.done).min(self.frames_per_packet - filled);
+        let take =
+            (cursor.stamp.frames as usize - cursor.done).min(self.frames_per_packet - filled);
         let open = self.open.get_or_insert_with(|| {
             let open = Open {
                 format: stream.format,
@@ -287,9 +315,13 @@ impl Packetizer {
         let out = &mut self.samples[filled * CHANNELS..(filled + take) * CHANNELS];
         // SAFETY: the only consumer, reading inside the stamp it peeked.
         unsafe {
-            self.ring.consume(cursor.stamp.position + cursor.done as u64, take, |segment, offset| {
-                f32_to_s16(segment, &mut out[offset * CHANNELS..]);
-            });
+            self.ring.consume(
+                cursor.stamp.position + cursor.done as u64,
+                take,
+                |segment, offset| {
+                    f32_to_s16(segment, &mut out[offset * CHANNELS..]);
+                },
+            );
         }
         cursor.done += take;
         open.frames += take;
@@ -299,7 +331,10 @@ impl Packetizer {
         if let Some(cursor) = self.chunk.as_mut() {
             let left = cursor.stamp.frames as usize - cursor.done;
             // SAFETY: the only consumer, releasing frames inside the stamp it peeked.
-            unsafe { self.ring.consume(cursor.stamp.position + cursor.done as u64, left, |_, _| {}) };
+            unsafe {
+                self.ring
+                    .consume(cursor.stamp.position + cursor.done as u64, left, |_, _| {})
+            };
             cursor.done += left;
         }
         self.finish_chunk();
@@ -314,7 +349,8 @@ impl Packetizer {
         if let Some(stream) = self.stream.as_mut() {
             let frames = u64::from(cursor.stamp.frames);
             stream.next_frame = cursor.first_frame + frames;
-            stream.next_host_ns = Some(cursor.host_ns + frames_to_ns(frames, stream.format.sample_rate));
+            stream.next_host_ns =
+                Some(cursor.host_ns + frames_to_ns(frames, stream.format.sample_rate));
         }
     }
 
@@ -371,7 +407,13 @@ pub(crate) mod tests {
     #[derive(Clone, Debug, PartialEq)]
     pub(crate) enum Owned {
         Start(StreamFormat),
-        Packet { stream: u16, sequence: u32, first_frame: u64, host_ns: i64, samples: Vec<i16> },
+        Packet {
+            stream: u16,
+            sequence: u32,
+            first_frame: u64,
+            host_ns: i64,
+            samples: Vec<i16>,
+        },
         End(u16),
     }
 
@@ -395,7 +437,14 @@ pub(crate) mod tests {
 
     /// Frame `n` of a test source: left = n / 32768, right = -n / 32768, which the
     /// packetizer turns into n and -n.
-    fn push(ring: &CaptureRing, epoch: u32, value: i64, frames: usize, host_ns: Option<i64>, sample_time: Option<f64>) {
+    fn push(
+        ring: &CaptureRing,
+        epoch: u32,
+        value: i64,
+        frames: usize,
+        host_ns: Option<i64>,
+        sample_time: Option<f64>,
+    ) {
         push_at_rate(ring, epoch, 48_000, value, frames, host_ns, sample_time);
     }
 
@@ -408,7 +457,13 @@ pub(crate) mod tests {
         host_ns: Option<i64>,
         sample_time: Option<f64>,
     ) {
-        let chunk = Chunk { epoch, sample_rate, host_ns, sample_time, arrival_ns: 1_000 };
+        let chunk = Chunk {
+            epoch,
+            sample_rate,
+            host_ns,
+            sample_time,
+            arrival_ns: 1_000,
+        };
         // SAFETY: tests are single-producer.
         let pushed = unsafe {
             ring.push(chunk, frames, |dst, offset| {
@@ -432,9 +487,19 @@ pub(crate) mod tests {
         items
             .iter()
             .filter_map(|item| match item {
-                Owned::Packet { stream, sequence, first_frame, host_ns, samples } => {
-                    Some((*stream, *sequence, *first_frame, *host_ns, samples.len() / CHANNELS))
-                }
+                Owned::Packet {
+                    stream,
+                    sequence,
+                    first_frame,
+                    host_ns,
+                    samples,
+                } => Some((
+                    *stream,
+                    *sequence,
+                    *first_frame,
+                    *host_ns,
+                    samples.len() / CHANNELS,
+                )),
                 _ => None,
             })
             .collect()
@@ -450,30 +515,57 @@ pub(crate) mod tests {
         let base = 1_000_000_000;
         let mut frame = 0u64;
         for size in [512usize, 512, 100, 700] {
-            push(&ring, 1, frame as i64, size, Some(base + ns(frame)), Some(10_000.0 + frame as f64));
+            push(
+                &ring,
+                1,
+                frame as i64,
+                size,
+                Some(base + ns(frame)),
+                Some(10_000.0 + frame as f64),
+            );
             frame += size as u64;
         }
         let items = drain(&mut p);
-        let format = StreamFormat { stream: 5, sample_rate: 48_000, channels: 2 };
+        let format = StreamFormat {
+            stream: 5,
+            sample_rate: 48_000,
+            channels: 2,
+        };
         assert_eq!(items[0], Owned::Start(format));
         let got = packets(&items);
-        assert_eq!(got.len(), 7, "1824 frames make 7 whole packets; 144 wait for more");
+        assert_eq!(
+            got.len(),
+            7,
+            "1824 frames make 7 whole packets; 144 wait for more"
+        );
         for (i, &(stream, sequence, first_frame, host_ns, frames)) in got.iter().enumerate() {
             assert_eq!((stream, sequence, frames), (5, i as u32, 240));
             assert_eq!(first_frame, i as u64 * 240);
             assert_near(host_ns, base + ns(first_frame));
         }
-        let Owned::Packet { samples, .. } = &items[3] else { panic!() };
+        let Owned::Packet { samples, .. } = &items[3] else {
+            panic!()
+        };
         for (i, frame) in samples.chunks_exact(CHANNELS).enumerate() {
             let n = (480 + i) as i16;
             assert_eq!(frame, [n, -n]);
         }
         assert!(p.poll().is_none());
 
-        push(&ring, 1, frame as i64, 96, Some(base + ns(frame)), Some(10_000.0 + frame as f64));
+        push(
+            &ring,
+            1,
+            frame as i64,
+            96,
+            Some(base + ns(frame)),
+            Some(10_000.0 + frame as f64),
+        );
         let more = packets(&drain(&mut p));
         assert_eq!(more.len(), 1);
-        assert_eq!((more[0].0, more[0].1, more[0].2, more[0].4), (5, 7, 1680, 240));
+        assert_eq!(
+            (more[0].0, more[0].1, more[0].2, more[0].4),
+            (5, 7, 1680, 240)
+        );
         assert_near(more[0].3, base + ns(1680));
         assert_eq!(p.stats().packets, 8);
     }
@@ -492,7 +584,11 @@ pub(crate) mod tests {
         let items = drain(&mut p);
         assert_eq!(
             packets(&items),
-            vec![(5, 0, 0, 0, 240), (5, 1, 240, ns(240), 60), (5, 2, 812, ns(812), 240)]
+            vec![
+                (5, 0, 0, 0, 240),
+                (5, 1, 240, ns(240), 60),
+                (5, 2, 812, ns(812), 240)
+            ]
         );
         assert!(!items.iter().any(|i| matches!(i, Owned::End(_))));
         assert_eq!((p.stats().gaps, p.stats().gap_frames), (1, 512));
@@ -505,7 +601,10 @@ pub(crate) mod tests {
         push(&ring, 1, 100, 100, Some(ns(100)), Some(100.4));
         push(&ring, 1, 200, 100, Some(ns(200)), Some(199.7));
         let got = packets(&drain(&mut p));
-        assert_eq!(got.iter().map(|p| p.2).collect::<Vec<_>>(), vec![0, 100, 200]);
+        assert_eq!(
+            got.iter().map(|p| p.2).collect::<Vec<_>>(),
+            vec![0, 100, 200]
+        );
         assert_eq!(p.stats().gaps, 0);
     }
 
@@ -515,11 +614,22 @@ pub(crate) mod tests {
         let mut got = Vec::new();
         for i in 0..2_000u64 {
             let jitter = [0.3, -0.3, 0.45, -0.45][i as usize % 4];
-            push(&ring, 1, (i * 512) as i64 % 30_000, 512, Some(ns(i * 512)), Some(7.0 + (i * 512) as f64 + jitter));
+            push(
+                &ring,
+                1,
+                (i * 512) as i64 % 30_000,
+                512,
+                Some(ns(i * 512)),
+                Some(7.0 + (i * 512) as f64 + jitter),
+            );
             got.extend(packets(&drain(&mut p)));
         }
         assert_eq!(got.len(), 2_000);
-        assert!(got.iter().enumerate().all(|(i, p)| p.0 == 5 && p.2 == i as u64 * 512));
+        assert!(
+            got.iter()
+                .enumerate()
+                .all(|(i, p)| p.0 == 5 && p.2 == i as u64 * 512)
+        );
         assert_eq!(p.stats().gaps, 0);
     }
 
@@ -529,11 +639,25 @@ pub(crate) mod tests {
         push(&ring, 1, 0, 300, Some(0), Some(5000.0));
         push(&ring, 1, 0, 240, Some(ns(400)), Some(10.0));
         let items = drain(&mut p);
-        let second = StreamFormat { stream: 6, sample_rate: 48_000, channels: 2 };
+        let second = StreamFormat {
+            stream: 6,
+            sample_rate: 48_000,
+            channels: 2,
+        };
         assert_eq!(
-            items.iter().map(|i| match i { Owned::Packet { .. } => Owned::End(999), other => other.clone() }).collect::<Vec<_>>(),
+            items
+                .iter()
+                .map(|i| match i {
+                    Owned::Packet { .. } => Owned::End(999),
+                    other => other.clone(),
+                })
+                .collect::<Vec<_>>(),
             vec![
-                Owned::Start(StreamFormat { stream: 5, sample_rate: 48_000, channels: 2 }),
+                Owned::Start(StreamFormat {
+                    stream: 5,
+                    sample_rate: 48_000,
+                    channels: 2
+                }),
                 Owned::End(999),
                 Owned::End(999),
                 Owned::End(5),
@@ -561,9 +685,27 @@ pub(crate) mod tests {
         push(&ring, 2, 0, 240, Some(ns(240)), Some(240.0));
         push_at_rate(&ring, 2, 44_100, 0, 240, Some(ns(480)), Some(480.0));
         let items = drain(&mut p);
-        let starts: Vec<_> = items.iter().filter_map(|i| match i { Owned::Start(f) => Some(*f), _ => None }).collect();
-        assert_eq!(starts.iter().map(|f| (f.stream, f.sample_rate)).collect::<Vec<_>>(), vec![(5, 48_000), (6, 48_000), (7, 44_100)]);
-        let ends: Vec<_> = items.iter().filter_map(|i| match i { Owned::End(s) => Some(*s), _ => None }).collect();
+        let starts: Vec<_> = items
+            .iter()
+            .filter_map(|i| match i {
+                Owned::Start(f) => Some(*f),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            starts
+                .iter()
+                .map(|f| (f.stream, f.sample_rate))
+                .collect::<Vec<_>>(),
+            vec![(5, 48_000), (6, 48_000), (7, 44_100)]
+        );
+        let ends: Vec<_> = items
+            .iter()
+            .filter_map(|i| match i {
+                Owned::End(s) => Some(*s),
+                _ => None,
+            })
+            .collect();
         assert_eq!(ends, vec![5, 6]);
     }
 
@@ -580,7 +722,14 @@ pub(crate) mod tests {
 
         push(&ring, 2, 0, 240, Some(ns(10_000)), Some(0.0));
         let items = drain(&mut p);
-        assert_eq!(items[0], Owned::Start(StreamFormat { stream: 6, sample_rate: 48_000, channels: 2 }));
+        assert_eq!(
+            items[0],
+            Owned::Start(StreamFormat {
+                stream: 6,
+                sample_rate: 48_000,
+                channels: 2
+            })
+        );
     }
 
     #[test]
@@ -600,15 +749,27 @@ pub(crate) mod tests {
         let mut p = Packetizer::new(ring.clone(), 100, 5);
         push(&ring, 1, 0, 100, Some(0), None);
         push(&ring, 1, 100, 924, Some(ns(100)), None);
-        let chunk = Chunk { epoch: 1, sample_rate: 48_000, host_ns: Some(ns(1024)), sample_time: None, arrival_ns: 0 };
+        let chunk = Chunk {
+            epoch: 1,
+            sample_rate: 48_000,
+            host_ns: Some(ns(1024)),
+            sample_time: None,
+            arrival_ns: 0,
+        };
         // SAFETY: tests are single-producer.
-        assert!(!unsafe { ring.push(chunk, 50, |_, _| {}) }, "the ring is full");
+        assert!(
+            !unsafe { ring.push(chunk, 50, |_, _| {}) },
+            "the ring is full"
+        );
         let before = packets(&drain(&mut p));
         assert_eq!(before.len(), 10);
 
         push(&ring, 1, 1074, 100, Some(ns(1074)), None);
         let after = packets(&drain(&mut p));
-        assert_eq!(after.iter().map(|p| (p.2, p.4)).collect::<Vec<_>>(), vec![(1000, 24), (1074, 100)]);
+        assert_eq!(
+            after.iter().map(|p| (p.2, p.4)).collect::<Vec<_>>(),
+            vec![(1000, 24), (1074, 100)]
+        );
         assert_eq!((p.stats().gaps, p.stats().gap_frames), (1, 50));
         assert_eq!(p.capture_stats().dropped_frames, 50);
     }
@@ -640,7 +801,13 @@ pub(crate) mod tests {
         let mut p = Packetizer::new(ring.clone(), 10, u16::MAX);
         push(&ring, 1, 0, 10, Some(0), Some(0.0));
         push(&ring, 2, 0, 10, Some(0), Some(0.0));
-        let starts: Vec<_> = drain(&mut p).into_iter().filter_map(|i| match i { Owned::Start(f) => Some(f.stream), _ => None }).collect();
+        let starts: Vec<_> = drain(&mut p)
+            .into_iter()
+            .filter_map(|i| match i {
+                Owned::Start(f) => Some(f.stream),
+                _ => None,
+            })
+            .collect();
         assert_eq!(starts, vec![u16::MAX, 0]);
     }
 

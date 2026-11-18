@@ -21,11 +21,17 @@ pub(crate) static PROCESS: Latch = Latch::new();
 
 impl Latch {
     pub const fn new() -> Latch {
-        Latch { blocked: Mutex::new(None), granted: AtomicBool::new(false) }
+        Latch {
+            blocked: Mutex::new(None),
+            granted: AtomicBool::new(false),
+        }
     }
 
     pub fn blocked(&self) -> Option<BlockReason> {
-        self.blocked.lock().unwrap_or_else(PoisonError::into_inner).clone()
+        self.blocked
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
     }
 
     /// The first reason stays. The marker records it for later processes.
@@ -99,12 +105,16 @@ mod tests {
         assert_eq!(latch.blocked(), None);
         let first = BlockReason::NoCallbacks { waited_ms: 5000 };
         latch.block(&first, Some(&marker)).unwrap();
-        latch.block(&BlockReason::Recorded("later".into()), Some(&marker)).unwrap();
+        latch
+            .block(&BlockReason::Recorded("later".into()), Some(&marker))
+            .unwrap();
         assert_eq!(latch.blocked(), Some(first.clone()));
 
         let next_process = Latch::new();
         next_process.load_marker(&marker);
-        let Some(BlockReason::Recorded(text)) = next_process.blocked() else { panic!() };
+        let Some(BlockReason::Recorded(text)) = next_process.blocked() else {
+            panic!()
+        };
         assert_eq!(text.trim(), first.to_string());
 
         next_process.clear(Some(&marker)).unwrap();

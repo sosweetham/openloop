@@ -47,7 +47,10 @@ mod tests {
         for i in -1000..=1000 {
             let sample = i as f32 / 1000.0 * 0.999;
             let back = one(sample) as f32 / 32768.0;
-            assert!((back - sample).abs() <= 0.5 / 32768.0 + f32::EPSILON, "{sample}");
+            assert!(
+                (back - sample).abs() <= 0.5 / 32768.0 + f32::EPSILON,
+                "{sample}"
+            );
         }
     }
 

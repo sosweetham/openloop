@@ -83,7 +83,9 @@ impl CaptureRing {
         let frames = frames.clamp(1024, 1 << 24).next_power_of_two();
         let stamps = frames / 16;
         CaptureRing {
-            samples: (0..frames * CHANNELS).map(|_| UnsafeCell::new(0.0)).collect(),
+            samples: (0..frames * CHANNELS)
+                .map(|_| UnsafeCell::new(0.0))
+                .collect(),
             frame_mask: frames as u64 - 1,
             stamps: (0..stamps).map(|_| UnsafeCell::new(EMPTY_STAMP)).collect(),
             stamp_mask: stamps as u64 - 1,
@@ -119,7 +121,12 @@ impl CaptureRing {
     ///
     /// # Safety
     /// The caller is the ring's only producer until this returns, and `fill` must not panic.
-    pub unsafe fn push(&self, chunk: Chunk, frames: usize, mut fill: impl FnMut(&mut [f32], usize)) -> bool {
+    pub unsafe fn push(
+        &self,
+        chunk: Chunk,
+        frames: usize,
+        mut fill: impl FnMut(&mut [f32], usize),
+    ) -> bool {
         if frames == 0 {
             return true;
         }
@@ -129,7 +136,8 @@ impl CaptureRing {
         let used_frames = frames_in.wrapping_sub(self.frames_out.0.load(Ordering::Acquire));
         let used_stamps = stamps_in.wrapping_sub(self.stamps_out.0.load(Ordering::Acquire));
         if frames as u64 > capacity - used_frames.min(capacity) || used_stamps > self.stamp_mask {
-            self.pending_drop.fetch_add(frames as u64, Ordering::Relaxed);
+            self.pending_drop
+                .fetch_add(frames as u64, Ordering::Relaxed);
             self.dropped.fetch_add(frames as u64, Ordering::Relaxed);
             return false;
         }
@@ -156,7 +164,9 @@ impl CaptureRing {
         };
         // SAFETY: as above, the slot is past the published count and released by the consumer.
         unsafe { *self.stamps[(stamps_in & self.stamp_mask) as usize].get() = stamp };
-        self.frames_in.0.store(frames_in + frames as u64, Ordering::Release);
+        self.frames_in
+            .0
+            .store(frames_in + frames as u64, Ordering::Release);
         self.stamps_in.0.store(stamps_in + 1, Ordering::Release);
         self.chunks.fetch_add(1, Ordering::Relaxed);
         self.frames.fetch_add(frames as u64, Ordering::Relaxed);
@@ -213,7 +223,9 @@ impl CaptureRing {
                 read(self.frames_ref(0, count - first), first);
             }
         }
-        self.frames_out.0.store(position + count as u64, Ordering::Release);
+        self.frames_out
+            .0
+            .store(position + count as u64, Ordering::Release);
     }
 
     pub fn rings(&self) -> u32 {
@@ -285,7 +297,10 @@ struct Doorbell {
 
 impl Doorbell {
     fn new() -> Doorbell {
-        Doorbell { rings: AtomicU32::new(0), sleepers: AtomicU32::new(0) }
+        Doorbell {
+            rings: AtomicU32::new(0),
+            sleepers: AtomicU32::new(0),
+        }
     }
 
     fn rings(&self) -> u32 {
@@ -338,7 +353,13 @@ mod tests {
     use std::time::Instant;
 
     fn chunk(epoch: u32) -> Chunk {
-        Chunk { epoch, sample_rate: 48_000, host_ns: Some(7), sample_time: Some(0.0), arrival_ns: 9 }
+        Chunk {
+            epoch,
+            sample_rate: 48_000,
+            host_ns: Some(7),
+            sample_time: Some(0.0),
+            arrival_ns: 9,
+        }
     }
 
     /// Frame `n` of a test sequence: left = n, right = -n.
@@ -362,7 +383,8 @@ mod tests {
             while let Some(stamp) = ring.peek() {
                 let mut frames = vec![0.0; stamp.frames as usize * CHANNELS];
                 ring.consume(stamp.position, stamp.frames as usize, |segment, offset| {
-                    frames[offset * CHANNELS..offset * CHANNELS + segment.len()].copy_from_slice(segment);
+                    frames[offset * CHANNELS..offset * CHANNELS + segment.len()]
+                        .copy_from_slice(segment);
                 });
                 ring.release_stamp();
                 out.push((stamp, frames));
@@ -411,9 +433,19 @@ mod tests {
 
         assert!(push_counting(&ring, 1150, 10));
         let second = drain(&ring);
-        assert_eq!(second[0].0.dropped_before, 150, "the next stamp carries the drop");
+        assert_eq!(
+            second[0].0.dropped_before, 150,
+            "the next stamp carries the drop"
+        );
         assert_eq!(second[0].0.position, 1000);
-        assert_eq!(ring.stats(), CaptureStats { chunks: 2, frames: 1010, dropped_frames: 150 });
+        assert_eq!(
+            ring.stats(),
+            CaptureStats {
+                chunks: 2,
+                frames: 1010,
+                dropped_frames: 150
+            }
+        );
     }
 
     #[test]
@@ -515,7 +547,10 @@ mod tests {
             woke = ring.wait(seen, Duration::from_secs(5));
         }
         assert!(woke);
-        assert!(start.elapsed() < Duration::from_secs(2), "woken by the ring, not the timeout");
+        assert!(
+            start.elapsed() < Duration::from_secs(2),
+            "woken by the ring, not the timeout"
+        );
         assert!(producer.join().unwrap());
     }
 
