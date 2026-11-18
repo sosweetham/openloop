@@ -521,8 +521,9 @@ Third-party material and its licences are listed in
 OpenLoop is an independent project. It is not affiliated with, endorsed by or sponsored by The
 Khronos Group, Meta, Apple, Valve, Google or the Godot Foundation. OpenXR and the OpenXR logo are
 trademarks owned by The Khronos Group Inc. Meta Quest, Apple, Mac, macOS, Metal, Apple Vision Pro,
-Steam Frame, Android and Godot are trademarks of their respective owners. These names are used
-only to describe what OpenLoop works with or is planned to work with. The full list is in
+Steam Frame, Android, Godot, Unity and Virtual Desktop are trademarks of their respective owners.
+These names are used only to describe what OpenLoop works with, is planned to work with or is
+compared with. The full list is in
 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md#5-trademarks).
 
 <!-- Before publishing: replace OWNER with the account that hosts Kenbu's repository. -->
