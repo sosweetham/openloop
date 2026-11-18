@@ -1,6 +1,6 @@
 //! Cuts the capture ring's chunks into packets of a fixed number of frames, converted to signed
 //! 16-bit PCM at the source's own rate, each stamped with its first frame's capture time
-//! (`XrTime`) for tetherd to turn into a headset presentation time. Frame indices follow the
+//! (`XrTime`) for openloopd to turn into a headset presentation time. Frame indices follow the
 //! source's sample counter, so a skipped IO cycle shows as a gap in `first_frame` rather than a
 //! shifted timestamp; anything that breaks that numbering starts a new stream.
 

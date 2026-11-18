@@ -1,6 +1,6 @@
 use std::ffi::{CStr, c_char};
 
-use tether_openxr_abi::{
+use openloop_openxr_abi::{
     XR_API_VERSION_1_1, XrApplicationInfo, XrInstance, XrInstanceCreateInfo, XrResult,
     XrStructureType,
 };
@@ -16,7 +16,7 @@ pub fn create_instance(extensions: &[&CStr]) -> XrInstance {
         engineVersion: 0,
         apiVersion: XR_API_VERSION_1_1,
     };
-    ffi::write_str(&mut app.applicationName, "tether-test");
+    ffi::write_str(&mut app.applicationName, "openloop-test");
     let names: Vec<*const c_char> = extensions.iter().map(|e| e.as_ptr()).collect();
     let info = XrInstanceCreateInfo {
         type_: XrStructureType::XR_TYPE_INSTANCE_CREATE_INFO,

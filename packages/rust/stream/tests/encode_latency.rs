@@ -20,10 +20,10 @@ use objc2_metal::{
     MTLRenderPassDescriptor, MTLRenderPipelineDescriptor, MTLRenderPipelineState, MTLStorageMode,
     MTLStoreAction, MTLTexture, MTLTextureDescriptor, MTLTextureType, MTLTextureUsage,
 };
-use tether_stream::compositor::{Compositor, EyeSource, iosurface_pixel_buffer};
-use tether_stream::encoder::{Codec, Encoder, EncoderConfig, Pending};
-use tether_stream::time::now_ns;
-use tether_stream::video;
+use openloop_stream::compositor::{Compositor, EyeSource, iosurface_pixel_buffer};
+use openloop_stream::encoder::{Codec, Encoder, EncoderConfig, Pending};
+use openloop_stream::time::now_ns;
+use openloop_stream::video;
 
 /// Quest 3's recommended per-eye render size.
 const QUEST3_EYE: (u32, u32) = (1680, 1760);

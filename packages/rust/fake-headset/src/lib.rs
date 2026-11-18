@@ -5,7 +5,7 @@
 //!
 //! ```no_run
 //! use std::time::Duration;
-//! use tether_fake_headset::{Config, run};
+//! use openloop_fake_headset::{Config, run};
 //!
 //! let report = run(Config::new(51234), Duration::from_secs(10));
 //! println!("{}", report.to_json());

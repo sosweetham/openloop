@@ -1,4 +1,4 @@
-//! Tether's headset client for Meta Quest. See `docs/ARCHITECTURE.md` § Quest client.
+//! OpenLoop's headset client for Meta Quest. See `docs/ARCHITECTURE.md` § Quest client.
 #![cfg(target_os = "android")]
 
 mod aaudio;
@@ -24,7 +24,7 @@ fn android_main(app: AndroidApp) {
     android_logger::init_once(
         android_logger::Config::default()
             .with_max_level(log::LevelFilter::Info)
-            .with_tag("Tether"),
+            .with_tag("OpenLoop"),
     );
     if let Err(e) = run(&app) {
         log::error!("{e}");

@@ -8,8 +8,8 @@ use std::ffi::OsStr;
 /// compositor filters it down to the encoded size: supersampling, which antialiases whatever the
 /// app draws. At 1.4 an M3 Max renders Kenbu in about 1.7 ms more GPU time per frame.
 pub const DEFAULT_RENDER_SCALE: f32 = 1.4;
-/// Replaces [`DEFAULT_RENDER_SCALE`] for the app it is set for, e.g. `TETHER_RENDER_SCALE=1.0`.
-pub const RENDER_SCALE_VAR: &str = "TETHER_RENDER_SCALE";
+/// Replaces [`DEFAULT_RENDER_SCALE`] for the app it is set for, e.g. `OPENLOOP_RENDER_SCALE=1.0`.
+pub const RENDER_SCALE_VAR: &str = "OPENLOOP_RENDER_SCALE";
 const RENDER_SCALES: std::ops::RangeInclusive<f32> = 0.5..=2.0;
 
 /// Pixels per second, both eyes together, that VideoToolbox encodes with its p95 latency inside

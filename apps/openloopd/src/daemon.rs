@@ -1,5 +1,5 @@
 //! The NSXPC service apps' runtimes call, and the publishing of the headset's state into every
-//! session's region (docs/ARCHITECTURE.md § Runtime ↔ tetherd).
+//! session's region (docs/ARCHITECTURE.md § Runtime ↔ openloopd).
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -9,17 +9,17 @@ use std::thread;
 use std::time::Duration;
 
 use objc2_metal::{MTLCreateSystemDefaultDevice, MTLDevice};
-use tether_ipc::control::{Hello, Peer, Service, SessionGrant, Status, Welcome};
-use tether_ipc::now_ns;
-use tether_ipc::records::HeadsetInfo;
-use tether_stream::{Change, HeadsetState, Observer, shared};
+use openloop_ipc::control::{Hello, Peer, Service, SessionGrant, Status, Welcome};
+use openloop_ipc::now_ns;
+use openloop_ipc::records::HeadsetInfo;
+use openloop_stream::{Change, HeadsetState, Observer, shared};
 
 use crate::audio::Audio;
 use crate::log;
 use crate::session::{Owner, Phase, Session, spawn_forwarder};
 use crate::stage::Stage;
 
-/// The beat a runtime watches to tell a live `tetherd` from a gone one.
+/// The beat a runtime watches to tell a live `openloopd` from a gone one.
 const HEARTBEAT: Duration = Duration::from_millis(100);
 const SESSIONS_PER_APP: usize = 4;
 const SESSIONS: usize = 16;
@@ -56,7 +56,7 @@ impl Hub {
     pub fn start_heartbeat(self: &Arc<Self>) {
         let hub = self.clone();
         let spawned = thread::Builder::new()
-            .name("tetherd-heartbeat".into())
+            .name("openloopd-heartbeat".into())
             .spawn(move || {
                 loop {
                     let now = now_ns();
@@ -92,7 +92,7 @@ impl Observer for Hub {
             Change::Refused { version } => log!(
                 "refused a headset speaking protocol {version}, not {}: install this checkout's \
                  Quest app (scripts/quest-apk.sh --install)",
-                tether_protocol::PROTOCOL_VERSION
+                openloop_protocol::PROTOCOL_VERSION
             ),
             Change::Recenter => log!("headset recentred"),
             Change::Focus => log!(

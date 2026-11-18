@@ -4,7 +4,7 @@
 use std::f32::consts::{PI, TAU};
 use std::time::Duration;
 
-use tether_protocol::{ControllerState, Fov, Pose, Velocity, View, button};
+use openloop_protocol::{ControllerState, Fov, Pose, Velocity, View, button};
 
 /// Quest 3-like eyes: 63 mm apart, each field of view wider towards the temple.
 const IPD_M: f32 = 0.063;
@@ -32,7 +32,7 @@ pub enum Hand {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Action {
-    /// Holds `button` (a `tether_protocol::button` bit) on `hand` for `hold`.
+    /// Holds `button` (a `openloop_protocol::button` bit) on `hand` for `hold`.
     Press {
         hand: Hand,
         button: u32,

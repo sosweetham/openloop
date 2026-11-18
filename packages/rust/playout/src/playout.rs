@@ -13,7 +13,7 @@ use std::f32::consts::FRAC_PI_2;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use tether_protocol::ClientTime;
+use openloop_protocol::ClientTime;
 
 use crate::clock::OutputClock;
 use crate::interp::{HALF_TAPS, Interpolator, TAPS};

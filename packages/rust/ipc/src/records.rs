@@ -1,4 +1,4 @@
-//! What the session region carries (docs/ARCHITECTURE.md § Runtime ↔ tetherd). Every time is
+//! What the session region carries (docs/ARCHITECTURE.md § Runtime ↔ openloopd). Every time is
 //! `XrTime` nanoseconds on the Mac's clock unless its type says otherwise. Each side reads what
 //! the other wrote as untrusted bytes, so the accessors here validate instead of assuming.
 
@@ -52,7 +52,7 @@ pod! {
         pub trigger: f32,
         pub squeeze: f32,
         pub thumbstick: [f32; 2],
-        /// `tether_protocol::button` bits.
+        /// `openloop_protocol::button` bits.
         pub buttons: u32,
         pub touches: u32,
         /// Nonzero while the headset tracks this controller.
@@ -62,7 +62,7 @@ pod! {
 }
 
 pod! {
-    /// A nanosecond on the headset's clock, which only `tetherd`'s clock mapping relates to
+    /// A nanosecond on the headset's clock, which only `openloopd`'s clock mapping relates to
     /// `XrTime`.
     pub struct HeadsetTime {
         pub ns: i64,
@@ -70,7 +70,7 @@ pod! {
 }
 
 pod! {
-    /// The headset's profile; `tetherd` publishes a new one whenever the headset (re)connects.
+    /// The headset's profile; `openloopd` publishes a new one whenever the headset (re)connects.
     pub struct HeadsetInfo {
         /// Recommended per-eye render size.
         pub eye_width: u32,
@@ -122,7 +122,7 @@ impl HeadsetInfo {
 }
 
 pod! {
-    /// The latest tracking, already on the Mac's clock: `tetherd` maps the headset's sample
+    /// The latest tracking, already on the Mac's clock: `openloopd` maps the headset's sample
     /// time before publishing.
     pub struct TrackingSample {
         pub sample_mac_ns: i64,
@@ -175,7 +175,7 @@ impl ClockMapping {
 }
 
 pod! {
-    /// `tetherd`'s schedule for the app's next frame (R2 S4).
+    /// `openloopd`'s schedule for the app's next frame (R2 S4).
     pub struct FrameTiming {
         /// The frame this schedule is for; `xrWaitFrame` hands out each one once.
         pub frame_index: u64,
@@ -212,9 +212,9 @@ pod! {
 
 impl SessionState {
     pub const LINK_UP: u64 = 1 << 0;
-    /// The app has input focus; Tether's menu takes it while open.
+    /// The app has input focus; OpenLoop's menu takes it while open.
     pub const FOCUSED: u64 = 1 << 1;
-    /// `tetherd` is going away; the runtime detaches instead of waiting for it.
+    /// `openloopd` is going away; the runtime detaches instead of waiting for it.
     pub const STOPPING: u64 = 1 << 2;
 
     pub fn link_up(&self) -> bool {
@@ -231,10 +231,10 @@ impl SessionState {
 }
 
 pod! {
-    /// The header of one encoded video access unit, app → `tetherd` (R2 S1 and S2).
+    /// The header of one encoded video access unit, app → `openloopd` (R2 S1 and S2).
     pub struct AccessUnit {
         pub frame_index: u64,
-        /// `tetherd` maps it to the headset's clock when it sends the frame.
+        /// `openloopd` maps it to the headset's clock when it sends the frame.
         pub display_mac_ns: i64,
         pub encoded_mac_ns: i64,
         /// The views the frame was rendered for, in the headset's tracking space.
@@ -275,7 +275,7 @@ pub const HANDS: u32 = 2;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Message {
-    /// App → `tetherd`. `frequency_hz` 0 means the headset's default; `duration_ns` is never
+    /// App → `openloopd`. `frequency_hz` 0 means the headset's default; `duration_ns` is never
     /// negative, so the runtime resolves `XR_MIN_HAPTIC_DURATION` before sending.
     Haptic {
         hand: u32,
@@ -283,13 +283,13 @@ pub enum Message {
         duration_ns: i64,
         frequency_hz: f32,
     },
-    /// App → `tetherd`.
+    /// App → `openloopd`.
     StopHaptic { hand: u32 },
-    /// `tetherd` → app.
+    /// `openloopd` → app.
     Focus { focused: bool, at_mac_ns: i64 },
-    /// `tetherd` → app: `count` is [`SessionState::recenters`] after this one.
+    /// `openloopd` → app: `count` is [`SessionState::recenters`] after this one.
     Recenter { count: u64, at_mac_ns: i64 },
-    /// `tetherd` → app, while the app encodes (R2 S1 and S2).
+    /// `openloopd` → app, while the app encodes (R2 S1 and S2).
     KeyframeRequest,
     /// Only for tests and probes: the receiver answers with the same value.
     Echo { value: u64, sent_mac_ns: i64 },

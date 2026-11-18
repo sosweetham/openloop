@@ -3,9 +3,9 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleIdentifier</key>
-	<string>dev.tether.tetherd</string>
+	<string>dev.openloop.openloopd</string>
 	<key>CFBundleName</key>
-	<string>Tether</string>
+	<string>OpenLoop</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleShortVersionString</key>
@@ -13,6 +13,6 @@
 	<key>CFBundleVersion</key>
 	<string>1</string>
 	<key>NSAudioCaptureUsageDescription</key>
-	<string>Tether plays the sound of the VR app you are running in your headset instead of on this Mac.</string>
+	<string>OpenLoop plays the sound of the VR app you are running in your headset instead of on this Mac.</string>
 </dict>
 </plist>

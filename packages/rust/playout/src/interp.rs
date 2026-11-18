@@ -1,7 +1,7 @@
 //! Band-limited reads at fractional frame positions, for the small speed changes that absorb
 //! clock drift: a Kaiser-windowed sinc tabulated at `PHASES` sub-frame offsets and blended
 //! linearly between neighbouring offsets. Not a general rate converter: below 1:1 it does not
-//! narrow its passband, which is why `tetherd` sends audio at the headset's own rate.
+//! narrow its passband, which is why `openloopd` sends audio at the headset's own rate.
 
 pub(crate) const TAPS: usize = 32;
 pub(crate) const HALF_TAPS: usize = TAPS / 2;

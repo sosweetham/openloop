@@ -1,52 +1,52 @@
 #!/usr/bin/env bash
-# Builds, signs and runs tetherd as a per-user launchd agent (dev.tether.tetherd). Every command
-# is safe to repeat. See docs/ARCHITECTURE.md § Runtime ↔ tetherd.
-#   scripts/tetherd.sh install [--release]  build, sign, install and (re)start it
-#   scripts/tetherd.sh ensure [--release]   the same, but leaves an up-to-date running tetherd
+# Builds, signs and runs openloopd as a per-user launchd agent (dev.openloop.openloopd). Every command
+# is safe to repeat. See docs/ARCHITECTURE.md § Runtime ↔ openloopd.
+#   scripts/openloopd.sh install [--release]  build, sign, install and (re)start it
+#   scripts/openloopd.sh ensure [--release]   the same, but leaves an up-to-date running openloopd
 #                                           (and the headset's link) alone; scripts/run.sh uses it
-#   scripts/tetherd.sh restart              relaunch it (launchctl kickstart -k)
-#   scripts/tetherd.sh stop                 unload it until the next install or ensure
-#   scripts/tetherd.sh status               launchd's view of it
-#   scripts/tetherd.sh log                  follow its log
-#   scripts/tetherd.sh uninstall            unload it and remove what install put in place
-#   scripts/tetherd.sh sign <from> <to>     copy a tetherd binary and sign it as tetherd
-#   scripts/tetherd.sh audio-permission [--prompt-answered] [--ignore-alerts]
+#   scripts/openloopd.sh restart              relaunch it (launchctl kickstart -k)
+#   scripts/openloopd.sh stop                 unload it until the next install or ensure
+#   scripts/openloopd.sh status               launchd's view of it
+#   scripts/openloopd.sh log                  follow its log
+#   scripts/openloopd.sh uninstall            unload it and remove what install put in place
+#   scripts/openloopd.sh sign <from> <to>     copy a openloopd binary and sign it as openloopd
+#   scripts/openloopd.sh audio-permission [--prompt-answered] [--ignore-alerts]
 #                                           once, at the Mac: the System Audio Recording prompt
-#   scripts/tetherd.sh audio-check [--prompt-answered] [--ignore-alerts]
-#                                           capture a 3 s test tone through the installed tetherd
-# TETHER_USB_PORT, when set at install, moves its headset listener off 47800 (and adb is then
-# left alone); TETHER_AUDIO (tap, synthetic or off) sets where the app's sound comes from.
-# TETHER_SIGN_IDENTITY and TETHER_TEAM_ID choose the signing certificate and its team (scripts/signing.sh).
+#   scripts/openloopd.sh audio-check [--prompt-answered] [--ignore-alerts]
+#                                           capture a 3 s test tone through the installed openloopd
+# OPENLOOP_USB_PORT, when set at install, moves its headset listener off 47800 (and adb is then
+# left alone); OPENLOOP_AUDIO (tap, synthetic or off) sets where the app's sound comes from.
+# OPENLOOP_SIGN_IDENTITY and OPENLOOP_TEAM_ID choose the signing certificate and its team (scripts/signing.sh).
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
 export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
 
-label=dev.tether.tetherd
+label=dev.openloop.openloopd
 domain="gui/$(id -u)"
 # shellcheck source=signing.sh
 . "$root/scripts/signing.sh"
-support="$HOME/Library/Application Support/Tether"
-binary="$support/tetherd"
-stamp="$support/tetherd.sha256"
+support="$HOME/Library/Application Support/OpenLoop"
+binary="$support/openloopd"
+stamp="$support/openloopd.sha256"
 plist="$HOME/Library/LaunchAgents/$label.plist"
-logs="$HOME/Library/Logs/Tether"
-log="$logs/tetherd.log"
+logs="$HOME/Library/Logs/OpenLoop"
+log="$logs/openloopd.log"
 
-say() { echo "tetherd.sh: $*" >&2; }
+say() { echo "openloopd.sh: $*" >&2; }
 
-# Signs a copy, so cargo's own output keeps its linker signature and a running tetherd is never
+# Signs a copy, so cargo's own output keeps its linker signature and a running openloopd is never
 # replaced by a half-written file. The hardened runtime and the audio-input entitlement match
 # what the System Audio Recording permission was researched under (packages/rust/audiotap).
 sign() {
   local from="$1" to="$2" tmp="$2.signing"
-  tether_signing || exit 1
-  # tether_ipc::tetherd_requirement(): what the runtime checks before it talks to tetherd.
-  local requirement="identifier \"$label\" and anchor apple generic and certificate leaf[subject.OU] = \"$TETHER_TEAM_ID\""
+  openloop_signing || exit 1
+  # openloop_ipc::openloopd_requirement(): what the runtime checks before it talks to openloopd.
+  local requirement="identifier \"$label\" and anchor apple generic and certificate leaf[subject.OU] = \"$OPENLOOP_TEAM_ID\""
   mkdir -p "$(dirname "$to")"
   cp "$from" "$tmp"
-  codesign --force --sign "$TETHER_SIGN_IDENTITY" --identifier "$label" --options runtime \
-    --entitlements "$root/apps/tetherd/tetherd.entitlements" --timestamp=none "$tmp" 2>/dev/null
+  codesign --force --sign "$OPENLOOP_SIGN_IDENTITY" --identifier "$label" --options runtime \
+    --entitlements "$root/apps/openloopd/openloopd.entitlements" --timestamp=none "$tmp" 2>/dev/null
   codesign --verify --strict -R="$requirement" "$tmp"
   mv -f "$tmp" "$to"
 }
@@ -57,20 +57,20 @@ build() {
     profile=release
     out_dir=release
   fi
-  tether_signing || exit 1
-  cargo build --manifest-path "$root/Cargo.toml" -p tetherd --profile "$profile" >&2
+  openloop_signing || exit 1
+  cargo build --manifest-path "$root/Cargo.toml" -p openloopd --profile "$profile" >&2
   local target
   target="$(cd "${CARGO_TARGET_DIR:-$root/target}" && pwd)"
-  built="$target/$out_dir/tetherd"
+  built="$target/$out_dir/openloopd"
 }
 
 render_plist() {
   local args="    <string>$binary</string>"
-  if [[ -n "${TETHER_USB_PORT:-}" ]]; then
-    args+=$'\n'"    <string>--usb-port</string><string>$TETHER_USB_PORT</string>"
+  if [[ -n "${OPENLOOP_USB_PORT:-}" ]]; then
+    args+=$'\n'"    <string>--usb-port</string><string>$OPENLOOP_USB_PORT</string>"
   fi
-  if [[ -n "${TETHER_AUDIO:-}" ]]; then
-    args+=$'\n'"    <string>--audio</string><string>$TETHER_AUDIO</string>"
+  if [[ -n "${OPENLOOP_AUDIO:-}" ]]; then
+    args+=$'\n'"    <string>--audio</string><string>$OPENLOOP_AUDIO</string>"
   fi
   local env=""
   if [[ -n "${ANDROID_HOME:-}" ]]; then
@@ -121,7 +121,7 @@ wait_running() {
     fi
     sleep 0.1
   done
-  say "launchd has not started it; see $log and: scripts/tetherd.sh status"
+  say "launchd has not started it; see $log and: scripts/openloopd.sh status"
   return 1
 }
 
@@ -161,11 +161,11 @@ deploy() {
   wait_running
 }
 
-# Runs the installed tetherd once as a launchd job, `tetherd audio-permission` or `audio-check`,
-# so TCC holds tetherd itself responsible and the grant lands on the binary the agent runs. A tap
+# Runs the installed openloopd once as a launchd job, `openloopd audio-permission` or `audio-check`,
+# so TCC holds openloopd itself responsible and the grant lands on the binary the agent runs. A tap
 # operation issued while a capture prompt was pending once wedged coreaudiod, and audio for every
 # app on the Mac, for hours: nothing here retries, and a run that stalls or hears nothing leaves
-# the block file that keeps tetherd and later runs away from Core Audio until --prompt-answered.
+# the block file that keeps openloopd and later runs away from Core Audio until --prompt-answered.
 audio_job() {
   local mode="$1"
   shift
@@ -179,7 +179,7 @@ audio_job() {
   done
   local blocked="$support/audio-blocked" job="$label.audio-$mode"
   [[ "$(id -u)" != 0 ]] || { say "run this as yourself, not root"; exit 1; }
-  [[ -x "$binary" ]] || { say "tetherd is not installed; run scripts/tetherd.sh install first"; exit 1; }
+  [[ -x "$binary" ]] || { say "openloopd is not installed; run scripts/openloopd.sh install first"; exit 1; }
   if [[ -e "$blocked" ]]; then
     if ((prompt_answered)); then
       say "clearing the block an earlier capture recorded: $(cat "$blocked")"
@@ -260,8 +260,8 @@ EOF
   trap finish_job EXIT
 
   if [[ "$mode" == permission ]]; then
-    say "A System Audio Recording prompt for \"tetherd\" should appear on this Mac within seconds."
-    say "Click Allow. (tetherd waits for the answer; if none comes it stops without retrying.)"
+    say "A System Audio Recording prompt for \"openloopd\" should appear on this Mac within seconds."
+    say "Click Allow. (openloopd waits for the answer; if none comes it stops without retrying.)"
   fi
   : >"$run_dir/stdout.log"
   tail -n +1 -f "$run_dir/stdout.log" &
@@ -284,7 +284,7 @@ EOF
     # client's private tap and aggregate device.
     say "still running after ${limit}s; terminating the job"
     [[ -e "$blocked" ]] ||
-      echo "tetherd.sh terminated an audio-$mode run still inside a Core Audio call after ${limit}s; a prompt may be pending" >"$blocked"
+      echo "openloopd.sh terminated an audio-$mode run still inside a Core Audio call after ${limit}s; a prompt may be pending" >"$blocked"
     launchctl kill SIGTERM "$domain/$job" >/dev/null 2>&1 || true
     for _ in $(seq 20); do
       [[ "$(job_field state)" == "not running" ]] && break
@@ -307,7 +307,7 @@ EOF
   case "$code" in
     0)
       if [[ "$mode" == permission ]]; then
-        say "Granted: tetherd now plays the app in front in the headset. Next: scripts/tetherd.sh audio-check"
+        say "Granted: openloopd now plays the app in front in the headset. Next: scripts/openloopd.sh audio-check"
       else
         say "PASS"
       fi

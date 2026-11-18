@@ -1,4 +1,4 @@
-//! The room from the headset cameras (XR_FB_passthrough), switched on from Tether's menu.
+//! The room from the headset cameras (XR_FB_passthrough), switched on from OpenLoop's menu.
 //!
 //! openxr-rs 0.22's passthrough wrapper is unusable here: `Passthrough::start` calls
 //! xrPassthroughPauseFB, and its composition layer builder and layer handle are private. The

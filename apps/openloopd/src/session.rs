@@ -1,6 +1,6 @@
-//! One app session: the shared-memory region `tetherd` made for it, the records published there,
+//! One app session: the shared-memory region `openloopd` made for it, the records published there,
 //! and the thread that forwards the app's encoded video and haptics to the headset
-//! (docs/ARCHITECTURE.md § Runtime ↔ tetherd). Its sound goes through `audio`.
+//! (docs/ARCHITECTURE.md § Runtime ↔ openloopd). Its sound goes through `audio`.
 
 use std::io;
 use std::path::PathBuf;
@@ -8,10 +8,10 @@ use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread;
 
-use tether_ipc::records::{ClockMapping, FrameTiming, Message, SessionState};
-use tether_ipc::{AccessUnits, PopError, Publisher, SessionRegion, now_ns};
-use tether_protocol::Haptics;
-use tether_stream::{Change, HeadsetState, PIPELINE_LATENCY_NS, shared};
+use openloop_ipc::records::{ClockMapping, FrameTiming, Message, SessionState};
+use openloop_ipc::{AccessUnits, PopError, Publisher, SessionRegion, now_ns};
+use openloop_protocol::Haptics;
+use openloop_stream::{Change, HeadsetState, PIPELINE_LATENCY_NS, shared};
 
 use crate::audio::Tally;
 use crate::log;
@@ -64,7 +64,7 @@ pub struct Session {
     phase: AtomicU8,
 }
 
-/// The single writer's side of every record `tetherd` publishes in the region.
+/// The single writer's side of every record `openloopd` publishes in the region.
 struct Records {
     headset: Publisher,
     tracking: Publisher,
@@ -73,7 +73,7 @@ struct Records {
     state: Publisher,
     current: SessionState,
     published: Option<SessionState>,
-    last_headset: Option<tether_ipc::records::HeadsetInfo>,
+    last_headset: Option<openloop_ipc::records::HeadsetInfo>,
 }
 
 impl Session {
@@ -121,7 +121,7 @@ impl Session {
     /// Wakes the forwarder so it acts on the new phase at once.
     pub fn set_phase(&self, phase: Phase) {
         self.phase.store(phase as u8, Ordering::Release);
-        self.region.tetherd_bell.ring();
+        self.region.openloopd_bell.ring();
     }
 
     fn records(&self) -> MutexGuard<'_, Records> {
@@ -241,7 +241,7 @@ pub struct Video {
 /// Forwards the session's access units and haptics until it is destroyed, then ends its stream
 /// and writes its report.
 pub fn spawn_forwarder(session: Arc<Session>, stage: Arc<Stage>, reports: PathBuf) {
-    let name = format!("tetherd-session-{}", session.id);
+    let name = format!("openloopd-session-{}", session.id);
     let spawned = thread::Builder::new()
         .name(name)
         .spawn(move || forward(&session, &stage, reports));
@@ -252,7 +252,7 @@ pub fn spawn_forwarder(session: Arc<Session>, stage: Arc<Stage>, reports: PathBu
 
 fn forward(session: &Session, stage: &Stage, reports: PathBuf) {
     let region = session.region();
-    let mut events = region.to_tetherd.consumer();
+    let mut events = region.to_openloopd.consumer();
     let mut units = region.access_units.consumer();
     let mut buffer = vec![0u8; AccessUnits::MAX_BYTES];
     let mut video = Video {
@@ -262,10 +262,10 @@ fn forward(session: &Session, stage: &Stage, reports: PathBuf) {
     let mut report = SessionReport::new(session);
     let mut corrupt = false;
     loop {
-        let seen = region.tetherd_bell.rings();
+        let seen = region.openloopd_bell.rings();
         let phase = session.phase();
         while !corrupt {
-            match region.to_tetherd.pop(&mut events) {
+            match region.to_openloopd.pop(&mut events) {
                 Ok(Some(event)) => match event.decode() {
                     Ok(message) => haptic(session, stage, message, &mut report),
                     Err(bad) => {
@@ -319,7 +319,7 @@ fn forward(session: &Session, stage: &Stage, reports: PathBuf) {
         }
         // Errors here are the kernel refusing the wait; the loop just looks again.
         let _ = region
-            .tetherd_bell
+            .openloopd_bell
             .wait(seen, Some(now_ns().saturating_add(IDLE_WAKE_NS)));
     }
     report.finish(corrupt, &session.audio);

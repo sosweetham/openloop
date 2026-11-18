@@ -1,4 +1,4 @@
-//! The handle tetherd holds: one source, the Core Audio tap or a synthetic tone, running on its
+//! The handle openloopd holds: one source, the Core Audio tap or a synthetic tone, running on its
 //! own thread, told which process to capture, reporting [`Event`]s, and feeding the
 //! [`Packetizer`] returned with it.
 
@@ -74,7 +74,7 @@ impl AudioCapture {
         let thread = match source {
             Source::Tap => spawn_tap(thread_ring, event_tx, commands.clone(), command_rx, config)?,
             Source::Synthetic(tone) => thread::Builder::new()
-                .name("tether-audio-synthetic".into())
+                .name("openloop-audio-synthetic".into())
                 .spawn(move || synthetic::run(tone, thread_ring, event_tx, command_rx, 1))?,
         };
         Ok((
@@ -175,7 +175,7 @@ fn spawn_tap(
         marker: config.block_marker,
     };
     let spawned = thread::Builder::new()
-        .name("tether-audio-control".into())
+        .name("openloop-audio-control".into())
         .spawn(move || {
             struct Release;
             impl Drop for Release {

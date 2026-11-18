@@ -1,4 +1,4 @@
-//! Tether's OpenXR runtime: the library the Khronos loader loads through the
+//! OpenLoop's OpenXR runtime: the library the Khronos loader loads through the
 //! runtime manifest. See `docs/ARCHITECTURE.md`.
 
 mod actions;

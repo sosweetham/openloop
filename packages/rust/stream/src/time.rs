@@ -3,7 +3,7 @@ unsafe extern "C" {
     fn clock_gettime_nsec_np(clock: libc::clockid_t) -> u64;
 }
 
-/// The Mac's monotonic clock in nanoseconds; the domain of every `XrTime` Tether hands out.
+/// The Mac's monotonic clock in nanoseconds; the domain of every `XrTime` OpenLoop hands out.
 pub fn now_ns() -> i64 {
     // SAFETY: CLOCK_UPTIME_RAW is always available on macOS.
     unsafe { clock_gettime_nsec_np(libc::CLOCK_UPTIME_RAW) as i64 }

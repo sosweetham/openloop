@@ -1,7 +1,7 @@
-//! `tetherd audio-permission` and `tetherd audio-check`: the one-shot runs a person makes at the
-//! Mac (docs/ARCHITECTURE.md § Audio). They run tetherd's own binary, as a launchd job, because
+//! `openloopd audio-permission` and `openloopd audio-check`: the one-shot runs a person makes at the
+//! Mac (docs/ARCHITECTURE.md § Audio). They run openloopd's own binary, as a launchd job, because
 //! TCC was seen keying a bare binary's grants on its path and code requirement, and holds a
-//! process started from a shell to the shell's app. `scripts/tetherd.sh audio-permission`
+//! process started from a shell to the shell's app. `scripts/openloopd.sh audio-permission`
 //! and `audio-check` start them. Either one that receives audio writes the grant file the agent
 //! waits for before it taps any app.
 
@@ -9,7 +9,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use tether_audiotap::probe::{Outcome, ProbeOptions, live_check, request_permission};
+use openloop_audiotap::probe::{Outcome, ProbeOptions, live_check, request_permission};
 
 use crate::audio::Permission;
 use crate::log::local_time;
@@ -50,7 +50,7 @@ pub fn run(mode: Mode, mut args: impl Iterator<Item = String>, usage: &str) -> E
     // SAFETY: getppid has no preconditions.
     if unsafe { libc::getppid() } != 1 {
         eprintln!(
-            "refusing to run: start this through scripts/tetherd.sh audio-permission or \
+            "refusing to run: start this through scripts/openloopd.sh audio-permission or \
              audio-check, as a launchd job, or the prompt and the grant go to this terminal"
         );
         return ExitCode::from(3);
@@ -70,7 +70,7 @@ pub fn run(mode: Mode, mut args: impl Iterator<Item = String>, usage: &str) -> E
         Mode::Permission => request_permission(&options),
         Mode::Check => live_check(&options),
     };
-    if tether_audiotap::permission_proven() {
+    if openloop_audiotap::permission_proven() {
         let binary = std::env::current_exe().unwrap_or_default();
         let note = format!("{} audio arrived in {}\n", local_time(), binary.display());
         if let Err(e) = fs::write(&permission.granted, note) {

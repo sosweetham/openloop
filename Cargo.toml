@@ -1,7 +1,7 @@
 [workspace]
 resolver = "3"
-members = ["packages/rust/*", "apps/quest", "apps/tetherd"]
-default-members = ["packages/rust/*", "apps/tetherd"]
+members = ["packages/rust/*", "apps/quest", "apps/openloopd"]
+default-members = ["packages/rust/*", "apps/openloopd"]
 
 [workspace.package]
 version = "0.1.0"
@@ -10,7 +10,7 @@ license = "MIT OR Apache-2.0"
 publish = false
 
 [workspace.dependencies]
-tether-openxr-abi = { path = "packages/rust/openxr-abi" }
+openloop-openxr-abi = { path = "packages/rust/openxr-abi" }
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"

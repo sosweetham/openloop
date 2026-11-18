@@ -1,5 +1,5 @@
-//! The NSXPC control plane: setup calls between the runtime and `tetherd`, never one per frame
-//! (docs/ARCHITECTURE.md § Runtime ↔ tetherd). The protocol itself is objc/TetherIPC.m.
+//! The NSXPC control plane: setup calls between the runtime and `openloopd`, never one per frame
+//! (docs/ARCHITECTURE.md § Runtime ↔ openloopd). The protocol itself is objc/OpenLoopIPC.m.
 
 mod client;
 mod encoding;
@@ -19,14 +19,14 @@ use crate::records::HeadsetInfo;
 use crate::xpc::{self, xpc_type_t};
 
 unsafe extern "C" {
-    // objc/TetherIPC.m.
-    fn tether_ipc_tetherd_service() -> *const AnyProtocol;
+    // objc/OpenLoopIPC.m.
+    fn openloop_ipc_openloopd_service() -> *const AnyProtocol;
 }
 
-/// `TetherdService`, with the extended method encodings only clang emits.
+/// `OpenLoopdService`, with the extended method encodings only clang emits.
 pub fn protocol() -> &'static AnyProtocol {
     // SAFETY: the accessor returns a protocol compiled into this binary, alive forever.
-    unsafe { &*tether_ipc_tetherd_service() }
+    unsafe { &*openloop_ipc_openloopd_service() }
 }
 
 /// The first argument of every reply.
@@ -75,17 +75,17 @@ pub struct Hello {
     pub api_version: u64,
 }
 
-/// What `tetherd` answers to a successful `hello`.
+/// What `openloopd` answers to a successful `hello`.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Welcome {
-    /// `MTLDevice.registryID` of `tetherd`'s GPU: shared textures only work on the device that
+    /// `MTLDevice.registryID` of `openloopd`'s GPU: shared textures only work on the device that
     /// made them, so the runtime hands the app this device.
     pub registry_id: u64,
     pub boot_id: u64,
     pub headset: Option<HeadsetInfo>,
 }
 
-/// XrSwapchainCreateInfo, as `tetherd` needs it to allocate (R2 S3).
+/// XrSwapchainCreateInfo, as `openloopd` needs it to allocate (R2 S3).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SwapchainDesc {
     /// An `MTLPixelFormat`.
@@ -231,7 +231,7 @@ mod tests {
             client.create_session(),
             Err(CallError::Refused(Status::NotGreeted))
         ));
-        let welcome = client.hello("tether-ipc tests", "none", 1).unwrap();
+        let welcome = client.hello("openloop-ipc tests", "none", 1).unwrap();
         assert_eq!(welcome.headset, Some(testing::headset_info()));
         assert_eq!(client.headset().unwrap(), Some(testing::headset_info()));
         assert_eq!(client.peer().pid, std::process::id() as i32);
@@ -281,7 +281,7 @@ mod tests {
             matches!(
                 refused,
                 Err(CallError::Version {
-                    tetherd: IPC_VERSION
+                    openloopd: IPC_VERSION
                 })
             ),
             "{refused:?}"
@@ -295,10 +295,10 @@ mod tests {
 
     #[test]
     fn a_missing_service_fails_the_call_quickly() {
-        let name = format!("dev.tether.test.missing.{}", std::process::id());
+        let name = format!("dev.openloop.test.missing.{}", std::process::id());
         let client = Client::connect(&name, ConnectOptions::default());
         let started = std::time::Instant::now();
-        let failed = client.hello("tether-ipc tests", "none", 1);
+        let failed = client.hello("openloop-ipc tests", "none", 1);
         eprintln!("missing service: {failed:?} after {:?}", started.elapsed());
         assert!(
             matches!(failed, Err(CallError::Connection { code: 4099, .. })),
@@ -336,7 +336,7 @@ mod tests {
     fn a_stuck_service_times_out_instead_of_hanging() {
         let (_listener, client) = connect(Arc::new(Stuck), Duration::from_millis(100));
         let started = std::time::Instant::now();
-        let result = client.hello("tether-ipc tests", "none", 1);
+        let result = client.hello("openloop-ipc tests", "none", 1);
         assert!(matches!(result, Err(CallError::TimedOut)), "{result:?}");
         assert!(
             started.elapsed() < Duration::from_millis(400),
@@ -352,7 +352,7 @@ mod tests {
             return;
         };
         let (_listener, client) = connect_to_test_service();
-        let welcome = client.hello("tether-ipc tests", "none", 1).unwrap();
+        let welcome = client.hello("openloop-ipc tests", "none", 1).unwrap();
         assert_eq!(welcome.registry_id, device.registryID());
         let session = client.create_session().unwrap();
         let app_ready = device.newSharedEventWithHandle(session.app_ready.as_ref().unwrap());

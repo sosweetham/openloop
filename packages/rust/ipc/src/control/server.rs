@@ -1,4 +1,4 @@
-//! `tetherd`'s side: the listener, and the object it exports on each connection.
+//! `openloopd`'s side: the listener, and the object it exports on each connection.
 
 use std::cell::Cell;
 use std::sync::Arc;
@@ -19,7 +19,7 @@ use crate::records::HeadsetInfo;
 use crate::xpc::XpcObject;
 use crate::{IPC_VERSION, Pod};
 
-/// What `tetherd` implements. Calls arrive on each connection's own serial queue, never on a
+/// What `openloopd` implements. Calls arrive on each connection's own serial queue, never on a
 /// real-time thread, and only after that connection's `hello` succeeded (except `hello`).
 pub trait Service: Send + Sync + 'static {
     fn hello(&self, peer: &Peer, hello: &Hello) -> Result<Welcome, Status>;
@@ -68,7 +68,7 @@ pub struct Listener {
 }
 
 impl Listener {
-    /// `tetherd` under launchd: `name` must be one of its plist's `MachServices`.
+    /// `openloopd` under launchd: `name` must be one of its plist's `MachServices`.
     pub fn mach_service(name: &str, service: Arc<dyn Service>) -> Listener {
         let listener = NSXPCListener::initWithMachServiceName(
             NSXPCListener::alloc(),
@@ -106,7 +106,7 @@ impl Drop for Listener {
 
 define_class!(
     #[unsafe(super(NSObject))]
-    #[name = "TetherIPCListenerDelegate"]
+    #[name = "OpenLoopIPCListenerDelegate"]
     #[ivars = Arc<dyn Service>]
     struct Delegate;
 
@@ -150,9 +150,9 @@ struct Connection {
 }
 
 define_class!(
-    // The methods are objc/TetherIPC.m's `TetherdService`, with the same argument types.
+    // The methods are objc/OpenLoopIPC.m's `OpenLoopdService`, with the same argument types.
     #[unsafe(super(NSObject))]
-    #[name = "TetherIPCExportedService"]
+    #[name = "OpenLoopIPCExportedService"]
     #[ivars = Connection]
     struct Exported;
 

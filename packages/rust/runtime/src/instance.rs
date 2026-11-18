@@ -3,7 +3,7 @@ use std::ffi::{CStr, c_char};
 use std::sync::Mutex;
 use std::sync::atomic::AtomicBool;
 
-use tether_openxr_abi::{
+use openloop_openxr_abi::{
     XrEventDataBuffer, XrInstance, XrInstanceCreateInfo, XrInstanceProperties, XrPath, XrResult,
     XrStructureType, XrVersion,
 };
@@ -173,7 +173,7 @@ pub unsafe extern "C" fn xr_get_instance_properties(
         let props = unsafe { ffi::write(properties) }?;
         ffi::expect_type(props.type_, XrStructureType::XR_TYPE_INSTANCE_PROPERTIES)?;
         props.runtimeVersion = version::runtime();
-        ffi::write_str(&mut props.runtimeName, "Tether");
+        ffi::write_str(&mut props.runtimeName, "OpenLoop");
         OK
     })
 }

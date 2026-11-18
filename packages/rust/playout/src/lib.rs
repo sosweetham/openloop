@@ -14,8 +14,8 @@ mod sync;
 mod tuner;
 
 pub use clock::ClockMode;
+pub use openloop_protocol::ClientTime;
 pub use packet::{PacketWriter, Pushed};
 pub use playout::{Config, OutputTiming, Playout, Timestamp, Tuning, new};
 pub use stats::{Snapshot, Stats};
-pub use tether_protocol::ClientTime;
 pub use tuner::BufferTuner;

@@ -1,13 +1,13 @@
 [package]
-name = "tether-audiotap"
+name = "openloop-audiotap"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
 
 [[bin]]
-name = "tether-audiotap"
-path = "src/bin/tether-audiotap.rs"
+name = "openloop-audiotap"
+path = "src/bin/openloop-audiotap.rs"
 test = false
 doc = false
 

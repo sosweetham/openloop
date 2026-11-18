@@ -1,4 +1,4 @@
-//! Captures one app's sound on the Mac for `tetherd` (R2 S2): a private Core Audio process tap
+//! Captures one app's sound on the Mac for `openloopd` (R2 S2): a private Core Audio process tap
 //! on the app's PID, read by a real-time IOProc into a lock-free ring and cut into 16-bit
 //! packets stamped with their `XrTime` capture time. A synthetic tone stands in for the tap in
 //! tests. Design: docs/ARCHITECTURE.md § Audio.

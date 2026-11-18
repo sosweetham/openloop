@@ -1,4 +1,4 @@
-//! Fixed-slot single-producer, single-consumer rings (docs/ARCHITECTURE.md § Runtime ↔ tetherd).
+//! Fixed-slot single-producer, single-consumer rings (docs/ARCHITECTURE.md § Runtime ↔ openloopd).
 
 use std::sync::atomic::{AtomicU64, Ordering};
 

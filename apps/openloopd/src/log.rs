@@ -1,4 +1,4 @@
-//! Timestamped lines on stderr, which launchd sends to `~/Library/Logs/Tether/tetherd.log`.
+//! Timestamped lines on stderr, which launchd sends to `~/Library/Logs/OpenLoop/openloopd.log`.
 
 use std::fmt;
 

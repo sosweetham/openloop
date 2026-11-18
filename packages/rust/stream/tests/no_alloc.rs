@@ -1,4 +1,4 @@
-//! What runs once per frame or per audio packet never allocates once warmed up: `tetherd`
+//! What runs once per frame or per audio packet never allocates once warmed up: `openloopd`
 //! sending video and sound to the headset, and the runtime reading a session's records. Any
 //! allocation on the watched thread while they run fails this test.
 
@@ -11,10 +11,10 @@ use std::net::TcpStream;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use tether_ipc::SessionRegion;
-use tether_ipc::records::TrackingSample;
-use tether_protocol::{AudioFormat, AudioHeader, ClientTime, Message, VideoFrame, VideoHeader};
-use tether_stream::{Headset, UsbTransport, shared};
+use openloop_ipc::SessionRegion;
+use openloop_ipc::records::TrackingSample;
+use openloop_protocol::{AudioFormat, AudioHeader, ClientTime, Message, VideoFrame, VideoHeader};
+use openloop_stream::{Headset, UsbTransport, shared};
 
 struct Counting;
 

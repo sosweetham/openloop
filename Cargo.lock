@@ -655,6 +655,146 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 
 [[package]]
+name = "openloop-audiotap"
+version = "0.1.0"
+dependencies = [
+ "block2",
+ "libc",
+ "objc2",
+ "objc2-core-audio",
+ "objc2-core-audio-types",
+ "objc2-core-foundation",
+ "objc2-foundation",
+]
+
+[[package]]
+name = "openloop-e2e"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "openloop-audiotap",
+ "openloop-stream",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "openloop-fake-headset"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "openloop-protocol",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "openloop-ipc"
+version = "0.1.0"
+dependencies = [
+ "block2",
+ "cc",
+ "libc",
+ "objc2",
+ "objc2-foundation",
+ "objc2-metal",
+]
+
+[[package]]
+name = "openloop-openxr-abi"
+version = "0.1.0"
+
+[[package]]
+name = "openloop-openxr-gen"
+version = "0.1.0"
+dependencies = [
+ "prettyplease",
+ "proc-macro2",
+ "quote",
+ "roxmltree",
+ "syn 2.0.119",
+]
+
+[[package]]
+name = "openloop-playout"
+version = "0.1.0"
+dependencies = [
+ "loom",
+ "openloop-protocol",
+]
+
+[[package]]
+name = "openloop-protocol"
+version = "0.1.0"
+
+[[package]]
+name = "openloop-quest"
+version = "0.1.0"
+dependencies = [
+ "android-activity",
+ "android_logger",
+ "fontdue",
+ "glam",
+ "glow",
+ "khronos-egl",
+ "libc",
+ "log",
+ "ndk",
+ "ndk-context",
+ "ndk-sys",
+ "openloop-playout",
+ "openloop-protocol",
+ "openxr",
+]
+
+[[package]]
+name = "openloop-runtime"
+version = "0.1.0"
+dependencies = [
+ "glam",
+ "objc2",
+ "objc2-foundation",
+ "objc2-metal",
+ "openloop-ipc",
+ "openloop-openxr-abi",
+ "openloop-protocol",
+ "openloop-stream",
+]
+
+[[package]]
+name = "openloop-stream"
+version = "0.1.0"
+dependencies = [
+ "block2",
+ "glam",
+ "libc",
+ "objc2",
+ "objc2-core-foundation",
+ "objc2-core-media",
+ "objc2-core-video",
+ "objc2-foundation",
+ "objc2-io-surface",
+ "objc2-metal",
+ "objc2-video-toolbox",
+ "openloop-ipc",
+ "openloop-protocol",
+]
+
+[[package]]
+name = "openloopd"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "objc2-metal",
+ "openloop-audiotap",
+ "openloop-fake-headset",
+ "openloop-ipc",
+ "openloop-protocol",
+ "openloop-stream",
+ "serde_json",
+]
+
+[[package]]
 name = "openxr"
 version = "0.22.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -915,146 +1055,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-ident",
-]
-
-[[package]]
-name = "tether-audiotap"
-version = "0.1.0"
-dependencies = [
- "block2",
- "libc",
- "objc2",
- "objc2-core-audio",
- "objc2-core-audio-types",
- "objc2-core-foundation",
- "objc2-foundation",
-]
-
-[[package]]
-name = "tether-e2e"
-version = "0.1.0"
-dependencies = [
- "libc",
- "serde",
- "serde_json",
- "tether-audiotap",
- "tether-stream",
-]
-
-[[package]]
-name = "tether-fake-headset"
-version = "0.1.0"
-dependencies = [
- "libc",
- "serde",
- "serde_json",
- "tether-protocol",
-]
-
-[[package]]
-name = "tether-ipc"
-version = "0.1.0"
-dependencies = [
- "block2",
- "cc",
- "libc",
- "objc2",
- "objc2-foundation",
- "objc2-metal",
-]
-
-[[package]]
-name = "tether-openxr-abi"
-version = "0.1.0"
-
-[[package]]
-name = "tether-openxr-gen"
-version = "0.1.0"
-dependencies = [
- "prettyplease",
- "proc-macro2",
- "quote",
- "roxmltree",
- "syn 2.0.119",
-]
-
-[[package]]
-name = "tether-playout"
-version = "0.1.0"
-dependencies = [
- "loom",
- "tether-protocol",
-]
-
-[[package]]
-name = "tether-protocol"
-version = "0.1.0"
-
-[[package]]
-name = "tether-quest"
-version = "0.1.0"
-dependencies = [
- "android-activity",
- "android_logger",
- "fontdue",
- "glam",
- "glow",
- "khronos-egl",
- "libc",
- "log",
- "ndk",
- "ndk-context",
- "ndk-sys",
- "openxr",
- "tether-playout",
- "tether-protocol",
-]
-
-[[package]]
-name = "tether-runtime"
-version = "0.1.0"
-dependencies = [
- "glam",
- "objc2",
- "objc2-foundation",
- "objc2-metal",
- "tether-ipc",
- "tether-openxr-abi",
- "tether-protocol",
- "tether-stream",
-]
-
-[[package]]
-name = "tether-stream"
-version = "0.1.0"
-dependencies = [
- "block2",
- "glam",
- "libc",
- "objc2",
- "objc2-core-foundation",
- "objc2-core-media",
- "objc2-core-video",
- "objc2-foundation",
- "objc2-io-surface",
- "objc2-metal",
- "objc2-video-toolbox",
- "tether-ipc",
- "tether-protocol",
-]
-
-[[package]]
-name = "tetherd"
-version = "0.1.0"
-dependencies = [
- "libc",
- "objc2-metal",
- "serde_json",
- "tether-audiotap",
- "tether-fake-headset",
- "tether-ipc",
- "tether-protocol",
- "tether-stream",
 ]
 
 [[package]]

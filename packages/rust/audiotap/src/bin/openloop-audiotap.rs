@@ -1,17 +1,17 @@
-//! Asks for the System Audio Recording permission under tetherd's signing identity, or checks a
+//! Asks for the System Audio Recording permission under openloopd's signing identity, or checks a
 //! live capture. Start it only through `packages/rust/audiotap/scripts/run-once.sh`, which signs
 //! it and runs it once as a launchd job.
 //!
-//!   tether-audiotap permission|check --out <dir> [--marker <file>]
+//!   openloop-audiotap permission|check --out <dir> [--marker <file>]
 
 #[cfg(target_os = "macos")]
 fn main() -> std::process::ExitCode {
+    use openloop_audiotap::probe::{Outcome, ProbeOptions, live_check, request_permission};
     use std::path::PathBuf;
     use std::process::ExitCode;
-    use tether_audiotap::probe::{Outcome, ProbeOptions, live_check, request_permission};
 
     let usage = || {
-        eprintln!("usage: tether-audiotap permission|check --out <dir> [--marker <file>]");
+        eprintln!("usage: openloop-audiotap permission|check --out <dir> [--marker <file>]");
         ExitCode::from(64)
     };
     let mut args = std::env::args().skip(1);

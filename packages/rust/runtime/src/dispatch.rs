@@ -1,6 +1,6 @@
 use std::ffi::{CStr, c_char};
 
-use tether_openxr_abi::{PFN_xrVoidFunction, XrInstance, XrResult};
+use openloop_openxr_abi::{PFN_xrVoidFunction, XrInstance, XrResult};
 
 use crate::generated::{Entries, Requirement, lookup};
 use crate::{actions, extensions, ffi, instance, session, space, strings, swapchain, system};
@@ -117,7 +117,7 @@ fn resolve(handle: XrInstance, name: &[u8]) -> Result<PFN_xrVoidFunction, XrResu
 mod tests {
     use super::*;
     use crate::testing::create_instance;
-    use tether_openxr_abi::XR_KHR_METAL_ENABLE_EXTENSION_NAME;
+    use openloop_openxr_abi::XR_KHR_METAL_ENABLE_EXTENSION_NAME;
 
     #[test]
     fn global_functions_resolve_without_an_instance() {

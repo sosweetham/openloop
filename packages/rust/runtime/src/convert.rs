@@ -1,7 +1,7 @@
 use glam::{Quat, Vec3};
-use tether_openxr_abi::{XrFovf, XrPosef, XrQuaternionf, XrVector3f};
-use tether_protocol::Fov;
-use tether_stream::pose::Rigid;
+use openloop_openxr_abi::{XrFovf, XrPosef, XrQuaternionf, XrVector3f};
+use openloop_protocol::Fov;
+use openloop_stream::pose::Rigid;
 
 pub fn rigid(p: &XrPosef) -> Rigid {
     let q = p.orientation;

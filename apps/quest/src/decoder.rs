@@ -54,7 +54,7 @@ impl Decoder {
         let flag = needs_keyframe.clone();
         // MediaCodec is not Send, so it is created and owned by its thread.
         thread::Builder::new()
-            .name("tether-decode".into())
+            .name("openloop-decode".into())
             .spawn(move || match open(&window, width, height, hevc) {
                 Ok(codec) => {
                     let _ = ready_tx.send(Ok(()));

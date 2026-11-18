@@ -1,32 +1,32 @@
 //! Turns a submitted projection layer into a pose-tagged encoded frame for the headset. Until
-//! R2 S3 the app's process composites and encodes; `tetherd` takes each access unit from the
+//! R2 S3 the app's process composites and encodes; `openloopd` takes each access unit from the
 //! session's shared ring and sends it.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use objc2_metal::MTLCommandQueue;
-use tether_ipc::records::AccessUnit;
-use tether_openxr_abi::{
+use openloop_ipc::records::AccessUnit;
+use openloop_openxr_abi::{
     XrCompositionLayerBaseHeader, XrCompositionLayerProjection, XrCompositionLayerProjectionView,
     XrResult, XrStructureType,
 };
-use tether_protocol::{Message, VideoFrame, View};
-use tether_stream::compositor::{Compositor, EyeSource};
-use tether_stream::encoder::{Codec, Encoded, Encoder, EncoderConfig, Pending};
-use tether_stream::stats::Histogram;
-use tether_stream::time::now_ns;
-use tether_stream::{Headset, shared, video};
+use openloop_protocol::{Message, VideoFrame, View};
+use openloop_stream::compositor::{Compositor, EyeSource};
+use openloop_stream::encoder::{Codec, Encoded, Encoder, EncoderConfig, Pending};
+use openloop_stream::stats::Histogram;
+use openloop_stream::time::now_ns;
+use openloop_stream::{Headset, shared, video};
 
 use crate::convert;
 use crate::handles::id;
-use crate::link::{SessionLink, TetherdSession};
+use crate::link::{OpenLoopdSession, SessionLink};
 use crate::session::Session;
 use crate::state::OBJECTS;
 
 struct FrameMeta {
     index: u64,
-    /// On the headset's clock in-process; on the Mac's for `tetherd`, which maps it as it sends.
+    /// On the headset's clock in-process; on the Mac's for `openloopd`, which maps it as it sends.
     display_time_ns: i64,
     views: [View; 2],
     /// When the frame was handed to the compositor, and when the GPU finished composing it,
@@ -40,7 +40,7 @@ struct FrameMeta {
 struct StreamStats {
     /// Every compositor slot was still in flight.
     dropped_before_encode: AtomicU64,
-    /// VideoToolbox dropped the frame, or `tetherd`'s ring had no room for it.
+    /// VideoToolbox dropped the frame, or `openloopd`'s ring had no room for it.
     lost_after_encode: AtomicU64,
     /// From `xrEndFrame` to the composed frame: the app's GPU work still queued, then the
     /// compositor's.
@@ -57,7 +57,7 @@ pub struct Streamer {
     /// Both encoded eyes side by side.
     video: (u32, u32),
     next_index: u64,
-    /// Set when a frame is lost after encoding began (VideoToolbox dropped it, or `tetherd`'s
+    /// Set when a frame is lost after encoding began (VideoToolbox dropped it, or `openloopd`'s
     /// ring was full), which breaks the reference chain.
     needs_keyframe: Arc<AtomicBool>,
     /// The session's keyframe request count last answered.
@@ -151,8 +151,8 @@ impl Streamer {
 /// Where encoded frames go.
 enum Sink {
     Headset(Arc<Headset>),
-    Tetherd {
-        session: Arc<TetherdSession>,
+    OpenLoopd {
+        session: Arc<OpenLoopdSession>,
         video: (u32, u32),
     },
 }
@@ -161,7 +161,7 @@ impl Sink {
     fn of(link: &SessionLink, video: (u32, u32)) -> Sink {
         match link {
             SessionLink::InProcess(headset) => Sink::Headset(headset.clone()),
-            SessionLink::Tetherd(session) => Sink::Tetherd {
+            SessionLink::OpenLoopd(session) => Sink::OpenLoopd {
                 session: session.clone(),
                 video,
             },
@@ -182,7 +182,7 @@ impl Sink {
                 }));
                 true
             }
-            Sink::Tetherd { session, video } => {
+            Sink::OpenLoopd { session, video } => {
                 let unit = AccessUnit {
                     frame_index: meta.index,
                     display_mac_ns: meta.display_time_ns,
@@ -297,7 +297,7 @@ pub fn submit(
             let requested = std::mem::take(&mut state.keyframe_requested) || new_stream;
             (state.clock.to_client(display_time), requested)
         }
-        SessionLink::Tetherd(_) => {
+        SessionLink::OpenLoopd(_) => {
             let requests = status.keyframe_requests;
             let requested = requests != streamer.keyframe_requests;
             streamer.keyframe_requests = requests;

@@ -1,6 +1,6 @@
-//! `tetherd`: the per-user launchd agent that owns the headset. Every OpenXR app's runtime
-//! reaches it over NSXPC and a shared-memory region (docs/ARCHITECTURE.md § Runtime ↔ tetherd);
-//! `scripts/tetherd.sh` builds, signs and installs it.
+//! `openloopd`: the per-user launchd agent that owns the headset. Every OpenXR app's runtime
+//! reaches it over NSXPC and a shared-memory region (docs/ARCHITECTURE.md § Runtime ↔ openloopd);
+//! `scripts/openloopd.sh` builds, signs and installs it.
 
 #[cfg(target_os = "macos")]
 mod adb;
@@ -38,10 +38,10 @@ mod macos {
     use std::thread;
     use std::time::Duration;
 
-    use tether_ipc::control::Listener;
-    use tether_protocol::USB_PORT;
-    use tether_stream::link::usb_port;
-    use tether_stream::{Headset, UsbTransport};
+    use openloop_ipc::control::Listener;
+    use openloop_protocol::USB_PORT;
+    use openloop_stream::link::usb_port;
+    use openloop_stream::{Headset, UsbTransport};
 
     use crate::adb::{self, Keeper};
     use crate::audio::{self, Audio, Permission};
@@ -51,32 +51,32 @@ mod macos {
     use crate::stage::Stage;
 
     const USAGE: &str = "\
-usage: tetherd [--service NAME] [--usb-port PORT] [--no-adb] [--reports DIR]
+usage: openloopd [--service NAME] [--usb-port PORT] [--no-adb] [--reports DIR]
                [--audio tap|synthetic|off] [--audio-state DIR]
-       tetherd audio-permission|audio-check --out DIR [--audio-state DIR]
+       openloopd audio-permission|audio-check --out DIR [--audio-state DIR]
 
 Owns the headset for every OpenXR app on this Mac. launchd runs it from
-~/Library/LaunchAgents/dev.tether.tetherd.plist (scripts/tetherd.sh install).
+~/Library/LaunchAgents/dev.openloop.openloopd.plist (scripts/openloopd.sh install).
 
-  --service NAME     the Mach service to check in for (default dev.tether.tetherd); it must be
+  --service NAME     the Mach service to check in for (default dev.openloop.openloopd); it must be
                      one of the launchd plist's MachServices
   --usb-port PORT    the loopback port the headset's adb reverse tunnel lands on (default
-                     TETHER_USB_PORT, else 47800); 0 picks a free one
+                     OPENLOOP_USB_PORT, else 47800); 0 picks a free one
   --no-adb           leave adb alone; on any port but 47800 it is left alone anyway, so a test
                      instance never takes the real headset's tunnel
-  --reports DIR      where session reports go (default ~/Library/Logs/Tether/sessions)
-  --audio SOURCE     the app's sound in the headset (default TETHER_AUDIO, else tap): tap
+  --reports DIR      where session reports go (default ~/Library/Logs/OpenLoop/sessions)
+  --audio SOURCE     the app's sound in the headset (default OPENLOOP_AUDIO, else tap): tap
                      captures the app in front with Core Audio once audio-permission has
                      passed; synthetic sends a test tone instead; off leaves sound on the Mac
   --audio-state DIR  where the permission's grant and block files live (default
-                     ~/Library/Application Support/Tether)
+                     ~/Library/Application Support/OpenLoop)
 
 audio-permission asks once for the System Audio Recording permission by tapping a silent
 afplay; audio-check captures a known tone and measures it. Both run only as a one-shot launchd
-job (scripts/tetherd.sh audio-permission | audio-check), so the grant is tetherd's own.";
+job (scripts/openloopd.sh audio-permission | audio-check), so the grant is openloopd's own.";
 
     /// Overrides the default `--audio` source, as a launchd plist's environment can.
-    const AUDIO_VAR: &str = "TETHER_AUDIO";
+    const AUDIO_VAR: &str = "OPENLOOP_AUDIO";
 
     struct Options {
         service: String,
@@ -99,13 +99,13 @@ job (scripts/tetherd.sh audio-permission | audio-check), so the grant is tetherd
             None => audio::Source::Tap,
         };
         let mut options = Options {
-            service: tether_ipc::SERVICE_NAME.to_owned(),
+            service: openloop_ipc::SERVICE_NAME.to_owned(),
             port: usb_port().map_err(|e| e.to_string())?,
             adb: true,
             reports: std::env::var_os("HOME")
                 .map(PathBuf::from)
                 .unwrap_or_default()
-                .join("Library/Logs/Tether/sessions"),
+                .join("Library/Logs/OpenLoop/sessions"),
             audio,
             audio_state: Permission::default_dir(),
         };
@@ -141,14 +141,14 @@ job (scripts/tetherd.sh audio-permission | audio-check), so the grant is tetherd
             Ok(options) => options,
             Err(e) => {
                 if !e.is_empty() {
-                    eprintln!("tetherd: {e}");
+                    eprintln!("openloopd: {e}");
                 }
                 eprintln!("{USAGE}");
                 return ExitCode::from(2);
             }
         };
         log!(
-            "tetherd {} (pid {}) serving {}, audio {}",
+            "openloopd {} (pid {}) serving {}, audio {}",
             env!("CARGO_PKG_VERSION"),
             std::process::id(),
             options.service,
@@ -180,7 +180,7 @@ job (scripts/tetherd.sh audio-permission | audio-check), so the grant is tetherd
     /// Binds the headset's port, waiting out an app on an older runtime that still holds it.
     fn listen(headset: Arc<Headset>, port: u16, keep_adb: bool) {
         let spawned = thread::Builder::new()
-            .name("tetherd-listen".into())
+            .name("openloopd-listen".into())
             .spawn(move || {
                 let mut complained = false;
                 let transport = loop {
@@ -190,7 +190,7 @@ job (scripts/tetherd.sh audio-permission | audio-check), so the grant is tetherd
                             if !complained {
                                 log!(
                                     "cannot listen on 127.0.0.1:{port} ({e}); an app on an older \
-                                     Tether runtime may hold it. Retrying every second."
+                                     OpenLoop runtime may hold it. Retrying every second."
                                 );
                                 complained = true;
                             }
@@ -199,7 +199,7 @@ job (scripts/tetherd.sh audio-permission | audio-check), so the grant is tetherd
                     }
                 };
                 let bound = transport.port();
-                // tether-e2e reads the port from this line.
+                // openloop-e2e reads the port from this line.
                 log!("headset listener on 127.0.0.1:{bound}");
                 if keep_adb {
                     match adb::Binary::find() {

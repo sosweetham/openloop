@@ -707,7 +707,7 @@ fn byte_view(texture: &Texture) -> Option<View> {
         other => (other, true),
     };
     let slices = texture.arrayLength().max(1);
-    // SAFETY: Tether creates every swapchain texture with PixelFormatView usage.
+    // SAFETY: OpenLoop creates every swapchain texture with PixelFormatView usage.
     let view = unsafe {
         texture.newTextureViewWithPixelFormat_textureType_levels_slices(
             format,

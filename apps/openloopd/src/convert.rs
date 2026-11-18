@@ -5,7 +5,7 @@
 
 use std::f64::consts::PI;
 
-use tether_protocol::MAX_AUDIO_FRAMES;
+use openloop_protocol::MAX_AUDIO_FRAMES;
 
 /// The tap's stereo mixdown.
 const IN_CHANNELS: usize = 2;
@@ -334,7 +334,7 @@ fn bessel_i0(x: f64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tether_audiotap::analysis::tone_stats;
+    use openloop_audiotap::analysis::tone_stats;
 
     /// Stereo frames of a tone, the same on both channels.
     fn tone(rate: u32, hz: f64, amplitude: f64, frames: usize) -> Vec<i16> {

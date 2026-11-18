@@ -1,4 +1,4 @@
-//! Tether's in-headset menu. Horizon OS keeps the Meta button to itself, so holding the left
+//! OpenLoop's in-headset menu. Horizon OS keeps the Meta button to itself, so holding the left
 //! controller's menu button opens it instead; a short press still reaches the app, on release.
 //! Either controller points at it and its trigger chooses. The app gets no button input while
 //! the menu is open.
@@ -9,7 +9,7 @@
 use std::time::{Duration, Instant};
 
 use glam::{Quat, Vec3};
-use tether_protocol::{ControllerState, Pose, button};
+use openloop_protocol::{ControllerState, Pose, button};
 
 use crate::ui::{Canvas, Rgba};
 
@@ -228,7 +228,7 @@ impl Menu {
         let c = &mut self.canvas;
         c.clear();
         c.rounded_rect(0.0, 0.0, w, h, 28.0, [22, 25, 31, 238]);
-        c.text(56.0, 96.0, 52.0, "Tether", WHITE);
+        c.text(56.0, 96.0, 52.0, "OpenLoop", WHITE);
         let status_line = match status {
             Status {
                 connected: false, ..

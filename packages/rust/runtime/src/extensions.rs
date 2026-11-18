@@ -1,6 +1,6 @@
 use std::ffi::{CStr, c_char};
 
-use tether_openxr_abi::{XrExtensionProperties, XrResult, XrStructureType};
+use openloop_openxr_abi::{XrExtensionProperties, XrResult, XrStructureType};
 
 use crate::ffi;
 use crate::generated::EXTENSIONS;

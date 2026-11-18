@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use tether_protocol::{
+use openloop_protocol::{
     AudioHeader, AudioPacket, AudioPacketRef, ClientTime, MAX_AUDIO_CHANNELS, MAX_AUDIO_FRAMES,
 };
 
@@ -179,7 +179,7 @@ impl PacketWriter {
 
 #[cfg(all(test, not(loom)))]
 mod tests {
-    use tether_protocol::{AudioFormat, Message, encode};
+    use openloop_protocol::{AudioFormat, Message, encode};
 
     use super::*;
     use crate::ring::{AcquireRelease, Consumer, ring};

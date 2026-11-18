@@ -1,9 +1,9 @@
-//! Compiles the NSXPC protocol (objc/TetherIPC.m) with Xcode's clang and SDK.
+//! Compiles the NSXPC protocol (objc/OpenLoopIPC.m) with Xcode's clang and SDK.
 
 use std::env;
 use std::process::Command;
 
-const SOURCE: &str = "objc/TetherIPC.m";
+const SOURCE: &str = "objc/OpenLoopIPC.m";
 
 // Pinned like scripts/openxr-sdk.sh: the Command Line Tools can ship an SDK newer than their own
 // linker understands.
@@ -12,8 +12,8 @@ const XCODE: &str = "/Applications/Xcode.app/Contents/Developer";
 fn main() {
     println!("cargo:rerun-if-changed={SOURCE}");
     println!("cargo:rerun-if-env-changed=DEVELOPER_DIR");
-    println!("cargo:rerun-if-env-changed=TETHER_TEAM_ID");
-    let team = env::var("TETHER_TEAM_ID").unwrap_or_default();
+    println!("cargo:rerun-if-env-changed=OPENLOOP_TEAM_ID");
+    let team = env::var("OPENLOOP_TEAM_ID").unwrap_or_default();
     // An Apple team ID is ten upper-case letters and digits.
     assert!(
         team.is_empty()
@@ -21,12 +21,12 @@ fn main() {
                 && team
                     .bytes()
                     .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit())),
-        "TETHER_TEAM_ID {team:?} is not an Apple team ID"
+        "OPENLOOP_TEAM_ID {team:?} is not an Apple team ID"
     );
-    println!("cargo:rustc-env=TETHER_TEAM_ID={team}");
+    println!("cargo:rustc-env=OPENLOOP_TEAM_ID={team}");
     if team.is_empty() {
         println!(
-            "cargo:warning=TETHER_TEAM_ID is not set: the runtime will accept a tetherd by its signing identifier alone. scripts/signing.sh sets it from your Apple Development certificate."
+            "cargo:warning=OPENLOOP_TEAM_ID is not set: the runtime will accept a openloopd by its signing identifier alone. scripts/signing.sh sets it from your Apple Development certificate."
         );
     }
     if env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("macos") {
@@ -63,7 +63,7 @@ fn main() {
         .flag("-fobjc-arc")
         .warnings(true)
         .extra_warnings(true)
-        .compile("tether_ipc_objc");
+        .compile("openloop_ipc_objc");
 
     println!("cargo:rustc-link-lib=framework=Foundation");
 }

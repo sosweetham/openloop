@@ -6,11 +6,11 @@ use std::error::Error;
 use std::time::Instant;
 
 use glow::HasContext;
-use openxr as xr;
-use tether_protocol::{
+use openloop_protocol::{
     ControllerState, DeviceProfile, Fov, Haptics, Message, PROTOCOL_VERSION, Pose, Tracking,
     Velocity, View, button,
 };
+use openxr as xr;
 
 use crate::audio::Audio;
 use crate::decoder::Decoder;
@@ -238,9 +238,9 @@ impl Headset {
         // compatibility behaviour, which disables STAGE among other things.
         let patch = xr::CURRENT_API_VERSION.patch();
         let app = |minor| xr::ApplicationInfo {
-            application_name: "Tether",
+            application_name: "OpenLoop",
             application_version: 1,
-            engine_name: "Tether",
+            engine_name: "OpenLoop",
             engine_version: 1,
             api_version: xr::Version::new(1, minor, patch),
         };
@@ -336,7 +336,7 @@ impl Headset {
             Shape::Flat
         };
         log::info!("menu panel: {shape:?}");
-        let (packets, playout) = tether_playout::new(tether_playout::Config::default());
+        let (packets, playout) = openloop_playout::new(openloop_playout::Config::default());
         let audio = Audio::start(playout);
         let (audio_sample_rate, audio_channels) = audio.granted().get();
         let profile = DeviceProfile {
@@ -771,7 +771,7 @@ impl Input {
     ) -> Result<Self, xr::sys::Result> {
         let path = |p: &str| instance.string_to_path(p);
         let hands = [path("/user/hand/left")?, path("/user/hand/right")?];
-        let set = instance.create_action_set("tether", "Tether", 0)?;
+        let set = instance.create_action_set("openloop", "OpenLoop", 0)?;
         let grip = set.create_action::<xr::Posef>("grip", "Grip", &hands)?;
         let aim = set.create_action::<xr::Posef>("aim", "Aim", &hands)?;
         let trigger = set.create_action::<f32>("trigger", "Trigger", &hands)?;

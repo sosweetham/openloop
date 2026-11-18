@@ -25,7 +25,7 @@ bindgen "$root/packages/rust/openxr-abi/wrapper.h" \
   --raw-line '// SPDX-License-Identifier: Apache-2.0 OR MIT' \
   -- -I"$include" -isysroot "$sdk"
 
-cargo run --quiet --manifest-path "$root/Cargo.toml" -p tether-openxr-gen -- \
+cargo run --quiet --manifest-path "$root/Cargo.toml" -p openloop-openxr-gen -- \
   "$root/third_party/OpenXR-SDK-Source/specification/registry/xr.xml" \
   "$out" \
   "$root/packages/rust/runtime/extensions.txt" \

@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use tether_protocol::{
+use openloop_protocol::{
     ClientHello, DecodeError, DeviceProfile, Message, PROTOCOL_VERSION, StreamDecoder, Tracking,
     encode_framed,
 };

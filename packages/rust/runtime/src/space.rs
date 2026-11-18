@@ -1,7 +1,7 @@
 //! Spaces, all resolved against the headset's tracking space (its STAGE: floor at y = 0).
 
 use glam::Vec3;
-use tether_openxr_abi::{
+use openloop_openxr_abi::{
     XR_SPACE_LOCATION_ORIENTATION_TRACKED_BIT, XR_SPACE_LOCATION_ORIENTATION_VALID_BIT,
     XR_SPACE_LOCATION_POSITION_TRACKED_BIT, XR_SPACE_LOCATION_POSITION_VALID_BIT,
     XR_SPACE_VELOCITY_ANGULAR_VALID_BIT, XR_SPACE_VELOCITY_LINEAR_VALID_BIT,
@@ -12,7 +12,7 @@ use tether_openxr_abi::{
     XrSpaceVelocities, XrSpaceVelocity, XrSpaceVelocityData, XrSpacesLocateInfo, XrStructureType,
     XrTime, XrView, XrViewLocateInfo, XrViewState,
 };
-use tether_stream::pose::Rigid;
+use openloop_stream::pose::Rigid;
 
 use crate::actions::{self, PoseKind};
 use crate::ffi::{self, OK};

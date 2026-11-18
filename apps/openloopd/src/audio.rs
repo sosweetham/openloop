@@ -1,9 +1,9 @@
 //! The foreground app's sound, from capture to the headset (docs/ARCHITECTURE.md § Audio): one
-//! `tether-audiotap` capture, pointed at the PID of whichever session is in front, and a thread
+//! `openloop-audiotap` capture, pointed at the PID of whichever session is in front, and a thread
 //! that converts its packets to the headset's format and sends them through the [`Stage`].
 //!
 //! The Core Audio tap is never touched before the System Audio Recording permission step has
-//! passed at the Mac (`scripts/tetherd.sh audio-permission`, which writes the grant file), nor
+//! passed at the Mac (`scripts/openloopd.sh audio-permission`, which writes the grant file), nor
 //! after anything suggested a prompt may be pending (the block file): a tap operation issued
 //! while a prompt was pending once wedged audio for every app on the Mac for hours.
 
@@ -16,11 +16,11 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::thread;
 use std::time::Duration;
 
-use tether_audiotap::{
+use openloop_audiotap::{
     AudioCapture, Config, EndReason, Event, Item, Packet, Packetizer, StreamFormat, Tone,
     status_text,
 };
-use tether_protocol::AudioFormat;
+use openloop_protocol::AudioFormat;
 
 use crate::convert::{Converted, Converter};
 use crate::log;
@@ -67,7 +67,7 @@ impl fmt::Display for Source {
     }
 }
 
-/// The files that gate the tap, shared with `tetherd audio-permission` and `audio-check`.
+/// The files that gate the tap, shared with `openloopd audio-permission` and `audio-check`.
 #[derive(Clone, Debug)]
 pub struct Permission {
     /// Written once the permission step has captured audio.
@@ -77,12 +77,12 @@ pub struct Permission {
 }
 
 impl Permission {
-    /// `~/Library/Application Support/Tether`, beside the installed tetherd.
+    /// `~/Library/Application Support/OpenLoop`, beside the installed openloopd.
     pub fn default_dir() -> PathBuf {
         std::env::var_os("HOME")
             .map(PathBuf::from)
             .unwrap_or_default()
-            .join("Library/Application Support/Tether")
+            .join("Library/Application Support/OpenLoop")
     }
 
     pub fn in_dir(dir: PathBuf) -> Permission {
@@ -166,7 +166,7 @@ impl Audio {
             next_stream: 0,
         };
         let spawned = thread::Builder::new()
-            .name("tetherd-audio".into())
+            .name("openloopd-audio".into())
             .spawn(move || sender.run());
         if let Err(e) = spawned {
             log!("audio: cannot start its thread: {e}");
@@ -279,7 +279,7 @@ impl Sender {
                         &session,
                         &format!(
                             "not captured: capture is blocked ({}); answer any System Audio \
-                             Recording prompt at the Mac, then run scripts/tetherd.sh \
+                             Recording prompt at the Mac, then run scripts/openloopd.sh \
                              audio-permission --prompt-answered",
                             reason.trim()
                         ),
@@ -289,7 +289,7 @@ impl Sender {
                 if !self.permission.granted.exists() {
                     self.say(
                         &session,
-                        "not captured: run scripts/tetherd.sh audio-permission at the Mac once \
+                        "not captured: run scripts/openloopd.sh audio-permission at the Mac once \
                          to grant System Audio Recording",
                     );
                     return;
@@ -316,8 +316,8 @@ impl Sender {
     fn engine(&mut self) -> Option<&Engine> {
         if self.engine.is_none() && !self.unavailable {
             let source = match self.source {
-                Source::Tap => tether_audiotap::Source::Tap,
-                _ => tether_audiotap::Source::Synthetic(Tone::default()),
+                Source::Tap => openloop_audiotap::Source::Tap,
+                _ => openloop_audiotap::Source::Synthetic(Tone::default()),
             };
             let config = Config {
                 block_marker: (self.source == Source::Tap).then(|| self.permission.blocked.clone()),
@@ -532,7 +532,7 @@ fn describe(event: &Event, session: Option<&Session>) {
         Event::Blocked(reason) => format!(
             "capture blocked: {reason}. Nothing touches Core Audio again until a person acts: \
              answer any System Audio Recording prompt, check System Settings > Privacy & \
-             Security > Screen & System Audio Recording, then run scripts/tetherd.sh \
+             Security > Screen & System Audio Recording, then run scripts/openloopd.sh \
              audio-permission --prompt-answered"
         ),
         Event::Refused { pid, reason } => {
@@ -556,8 +556,8 @@ fn describe(event: &Event, session: Option<&Session>) {
 mod tests {
     use std::time::Instant;
 
-    use tether_fake_headset::FakeHeadset;
-    use tether_stream::{Headset, PIPELINE_LATENCY_NS, UsbTransport};
+    use openloop_fake_headset::FakeHeadset;
+    use openloop_stream::{Headset, PIPELINE_LATENCY_NS, UsbTransport};
 
     use super::*;
     use crate::daemon::Hub;
@@ -571,7 +571,7 @@ mod tests {
         let port = transport.port();
         headset.accept(Box::new(transport));
         let stage = Arc::new(Stage::new(headset, hub.clone()));
-        let fake = FakeHeadset::connect(tether_fake_headset::Config::new(port)).unwrap();
+        let fake = FakeHeadset::connect(openloop_fake_headset::Config::new(port)).unwrap();
         let deadline = Instant::now() + Duration::from_secs(5);
         while stage.audio_output().is_none() {
             assert!(
@@ -587,7 +587,7 @@ mod tests {
             pid_version: 1,
         };
         let session = Session::new(7, owner, "test".into(), String::new(), Some(4242), 1).unwrap();
-        let state = std::env::temp_dir().join(format!("tetherd-audio-{}", std::process::id()));
+        let state = std::env::temp_dir().join(format!("openloopd-audio-{}", std::process::id()));
         let audio = Audio::start(Source::Synthetic, stage.clone(), Permission::in_dir(state));
         hub.bring_forward(session.id);
         audio.follow(session.clone());

@@ -1,4 +1,4 @@
-//! The app's sound in the headset: an AAudio output whose data callback plays `tether-playout`,
+//! The app's sound in the headset: an AAudio output whose data callback plays `openloop-playout`,
 //! owned by one thread that opens it, grows its buffer after underruns, reopens it after a
 //! disconnect and logs its statistics. See `docs/ARCHITECTURE.md` § Audio.
 
@@ -7,8 +7,8 @@ use std::sync::{Arc, mpsc};
 use std::thread::{self, JoinHandle, Thread};
 use std::time::{Duration, Instant};
 
-use tether_playout::{BufferTuner, ClientTime, OutputTiming, Playout, Snapshot, Timestamp};
-use tether_protocol::MAX_AUDIO_CHANNELS;
+use openloop_playout::{BufferTuner, ClientTime, OutputTiming, Playout, Snapshot, Timestamp};
+use openloop_protocol::MAX_AUDIO_CHANNELS;
 
 use crate::aaudio::{Callback, Error, Handler, OutputStream};
 use crate::net::now_ns;
@@ -55,7 +55,7 @@ impl Audio {
         let (shared, stop) = (granted.clone(), quit.clone());
         // The stream is not Send, so it is opened and dropped on its owner's thread.
         let owner = thread::Builder::new()
-            .name("tether-audio".into())
+            .name("openloop-audio".into())
             .spawn(move || Owner::new(playout, shared).run(&stop, &opened))
             .map_err(|e| log::error!("audio thread: {e}"))
             .ok();

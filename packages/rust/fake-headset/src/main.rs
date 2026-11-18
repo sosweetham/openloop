@@ -1,19 +1,19 @@
-//! `tether-fake-headset`: a fake Quest for a Tether runtime on this Mac. See `USAGE`.
+//! `openloop-fake-headset`: a fake Quest for a OpenLoop runtime on this Mac. See `USAGE`.
 
 use std::ffi::OsString;
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::Duration;
 
-use tether_fake_headset::{Config, Motion, parse_cue, run};
+use openloop_fake_headset::{Config, Motion, parse_cue, run};
 
 const USAGE: &str = "\
-usage: tether-fake-headset [--port PORT] [--seconds N] [--report FILE] [options]
+usage: openloop-fake-headset [--port PORT] [--seconds N] [--report FILE] [options]
 
-Connects to Tether on 127.0.0.1:PORT as a Quest 3 would, streams tracking at the refresh rate,
+Connects to OpenLoop on 127.0.0.1:PORT as a Quest 3 would, streams tracking at the refresh rate,
 checks the video, audio and haptics that come back, and writes a JSON report.
 
-  --port PORT            the Mac's port, else TETHER_USB_PORT. One of them is required: the
+  --port PORT            the Mac's port, else OPENLOOP_USB_PORT. One of them is required: the
                          default port belongs to the real headset, whose link this would replace.
   --seconds N            how long to stay connected (default 10)
   --report FILE          where the report goes (default stdout)
@@ -36,7 +36,7 @@ Exit status: 0 once a session has run and its report is written; 1 when it never
 (the report says why), the report could not be written, or --strict found errors; 2 for bad
 arguments.";
 
-const PORT_VAR: &str = "TETHER_USB_PORT";
+const PORT_VAR: &str = "OPENLOOP_USB_PORT";
 
 #[derive(Debug)]
 struct Options {
@@ -146,7 +146,7 @@ fn main() -> ExitCode {
             return ExitCode::SUCCESS;
         }
         Err(e) => {
-            eprintln!("tether-fake-headset: {e}\n\n{USAGE}");
+            eprintln!("openloop-fake-headset: {e}\n\n{USAGE}");
             return ExitCode::from(2);
         }
     };
@@ -155,14 +155,14 @@ fn main() -> ExitCode {
     let json = report.to_json();
     let written = match &options.report {
         Some(path) => std::fs::write(path, format!("{json}\n"))
-            .map_err(|e| eprintln!("tether-fake-headset: writing {}: {e}", path.display())),
+            .map_err(|e| eprintln!("openloop-fake-headset: writing {}: {e}", path.display())),
         None => {
             println!("{json}");
             Ok(())
         }
     };
     eprintln!(
-        "tether-fake-headset: 127.0.0.1:{port}, {:.1} s, {} frame(s) ({} keyframe(s)), {} audio packet(s), {} error(s), {} warning(s)",
+        "openloop-fake-headset: 127.0.0.1:{port}, {:.1} s, {} frame(s) ({} keyframe(s)), {} audio packet(s), {} error(s), {} warning(s)",
         report.duration_s,
         report.video.frames,
         report.video.keyframes,
@@ -183,7 +183,7 @@ fn main() -> ExitCode {
 
 #[cfg(test)]
 mod tests {
-    use tether_fake_headset::ClockModel;
+    use openloop_fake_headset::ClockModel;
 
     use super::*;
 

@@ -7,12 +7,12 @@ use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use tether_fake_headset::clock::monotonic_ns;
-use tether_fake_headset::report::KeyframeReason;
-use tether_fake_headset::{
+use openloop_fake_headset::clock::monotonic_ns;
+use openloop_fake_headset::report::KeyframeReason;
+use openloop_fake_headset::{
     Action, ClockModel, Config, Cue, FakeHeadset, Hand, Motion, Script, quest_3, run,
 };
-use tether_protocol::{
+use openloop_protocol::{
     AudioFormat, AudioHeader, AudioPacket, ClientHello, ClientTime, Haptics, Message,
     PROTOCOL_VERSION, ServerHello, StreamDecoder, Tracking, VideoFrame, button, encode_framed,
 };
@@ -127,7 +127,7 @@ impl Drop for Mac {
     }
 }
 
-/// Access units shaped like Tether's Annex-B HEVC output.
+/// Access units shaped like OpenLoop's Annex-B HEVC output.
 fn access_unit(keyframe: bool) -> Vec<u8> {
     let mut au = Vec::new();
     let units: &[(u8, &[u8])] = if keyframe {
@@ -152,7 +152,7 @@ fn frame(index: u64, keyframe: bool, display_time_ns: i64) -> Message {
         frame_index: index,
         display_time_ns,
         keyframe,
-        views: tether_fake_headset::script::eyes(),
+        views: openloop_fake_headset::script::eyes(),
         data: access_unit(keyframe),
     })
 }
@@ -677,11 +677,11 @@ fn a_headset_with_no_mac_reports_why() {
 fn the_command_line_writes_the_report_the_e2e_run_reads() {
     let (listener, port) = listen();
     let path =
-        std::env::temp_dir().join(format!("tether-fake-headset-{}.json", std::process::id()));
-    let mut child = Command::new(env!("CARGO_BIN_EXE_tether-fake-headset"))
+        std::env::temp_dir().join(format!("openloop-fake-headset-{}.json", std::process::id()));
+    let mut child = Command::new(env!("CARGO_BIN_EXE_openloop-fake-headset"))
         .args(["--port", &port.to_string(), "--seconds", "2", "--report"])
         .arg(&path)
-        .env_remove("TETHER_USB_PORT")
+        .env_remove("OPENLOOP_USB_PORT")
         .spawn()
         .unwrap();
     let mut mac = Mac::accept(&listener);

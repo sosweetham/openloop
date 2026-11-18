@@ -1,12 +1,12 @@
 [package]
-name = "tether-playout"
+name = "openloop-playout"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
 
 [dependencies]
-tether-protocol = { path = "../protocol" }
+openloop-protocol = { path = "../protocol" }
 
 [target.'cfg(loom)'.dependencies]
 loom = "0.7"

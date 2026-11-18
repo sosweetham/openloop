@@ -167,7 +167,7 @@ pub mod probe {
     pub const APP_READY: u64 = u64::MAX - 4;
 }
 
-/// A stand-in for `tetherd`: it publishes the fixed records above, echoes events with its wake
+/// A stand-in for `openloopd`: it publishes the fixed records above, echoes events with its wake
 /// time, verifies access units against [`fill_au_bytes`], and allocates shared Metal objects.
 pub struct TestService {
     boot_id: u64,
@@ -197,7 +197,7 @@ impl Default for TestService {
 impl TestService {
     fn stop(session: &mut TestSession) {
         session.stop.store(true, Ordering::SeqCst);
-        session.region.tetherd_bell.ring();
+        session.region.openloopd_bell.ring();
         if let Some(worker) = session.worker.take() {
             let _ = worker.join();
         }
@@ -336,7 +336,7 @@ impl Service for TestService {
             MTLTextureType::Type2D
         });
         descriptor.setPixelFormat(MTLPixelFormat(desc.pixel_format as usize));
-        // SAFETY: the tests ask for small, valid sizes; a real tetherd validates them first.
+        // SAFETY: the tests ask for small, valid sizes; a real openloopd validates them first.
         unsafe {
             descriptor.setWidth(desc.width as usize);
             descriptor.setHeight(desc.height as usize);
@@ -370,14 +370,14 @@ impl Service for TestService {
     }
 }
 
-/// The session thread: what `tetherd`'s per-client threads will do, minus the headset.
+/// The session thread: what `openloopd`'s per-client threads will do, minus the headset.
 fn serve(
     region: Arc<SessionRegion>,
     stop: &AtomicBool,
     mut to_app: crate::Producer,
     app_ready: Option<&ProtocolObject<dyn MTLSharedEvent>>,
 ) {
-    let mut from_app = region.to_tetherd.consumer();
+    let mut from_app = region.to_openloopd.consumer();
     let mut units = region.access_units.consumer();
     let mut buffer = vec![0; crate::AccessUnits::MAX_BYTES];
     let (mut verified, mut corrupt) = (0u64, 0u64);
@@ -389,7 +389,7 @@ fn serve(
         region.app_bell.ring();
     };
     while !stop.load(Ordering::SeqCst) {
-        let seen = region.tetherd_bell.rings();
+        let seen = region.openloopd_bell.rings();
         let mut drain_units = |verified: &mut u64, corrupt: &mut u64| {
             while let Ok(Some(unit)) = region.access_units.pop_into(&mut units, &mut buffer) {
                 if au_bytes_match(unit.frame_index, &buffer[..unit.len as usize]) {
@@ -400,7 +400,7 @@ fn serve(
             }
         };
         drain_units(&mut verified, &mut corrupt);
-        while let Ok(Some(event)) = region.to_tetherd.pop(&mut from_app) {
+        while let Ok(Some(event)) = region.to_openloopd.pop(&mut from_app) {
             let woke = now_ns();
             match event.decode() {
                 Ok(Message::Echo {
@@ -456,7 +456,9 @@ fn serve(
                 _ => {}
             }
         }
-        let _: Result<Wake, _> = region.tetherd_bell.wait(seen, Some(now_ns() + 100_000_000));
+        let _: Result<Wake, _> = region
+            .openloopd_bell
+            .wait(seen, Some(now_ns() + 100_000_000));
     }
     if let Some((done, thread)) = flood {
         done.store(true, Ordering::SeqCst);

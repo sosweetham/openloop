@@ -1,5 +1,5 @@
-//! The runtime and `tetherd` in two processes: this test is the app, and launchd runs the test
-//! service under a throwaway `dev.tether.test.*` label, which is booted out and deleted however
+//! The runtime and `openloopd` in two processes: this test is the app, and launchd runs the test
+//! service under a throwaway `dev.openloop.test.*` label, which is booted out and deleted however
 //! the test ends.
 #![cfg(target_os = "macos")]
 
@@ -11,12 +11,12 @@ use objc2_metal::{
     MTLCreateSystemDefaultDevice, MTLDevice, MTLPixelFormat, MTLSharedEvent, MTLTexture,
     MTLTextureType, MTLTextureUsage,
 };
-use tether_ipc::control::{CallError, Client, ConnectOptions, SwapchainDesc};
-use tether_ipc::records::{AccessUnit, Message};
-use tether_ipc::testing::{self, Stats, fill_au_bytes, is_stamped, probe};
-use tether_ipc::{AccessUnits, PushError, ReadError, SessionRegion, Wake, now_ns};
+use openloop_ipc::control::{CallError, Client, ConnectOptions, SwapchainDesc};
+use openloop_ipc::records::{AccessUnit, Message};
+use openloop_ipc::testing::{self, Stats, fill_au_bytes, is_stamped, probe};
+use openloop_ipc::{AccessUnits, PushError, ReadError, SessionRegion, Wake, now_ns};
 
-const SIGNING_IDENTIFIER: &str = "dev.tether.test.ipc-service";
+const SIGNING_IDENTIFIER: &str = "dev.openloop.test.ipc-service";
 
 /// A launchd agent for the test service. Dropping it boots the agent out and deletes its files.
 struct Agent {
@@ -29,7 +29,7 @@ impl Agent {
     /// `None` without a GUI login session (over ssh, say), whose launchd domain agents need.
     fn start() -> Option<Agent> {
         let unique = format!("{}.{}", std::process::id(), now_ns());
-        let label = format!("dev.tether.test.ipc.{unique}");
+        let label = format!("dev.openloop.test.ipc.{unique}");
         // SAFETY: no preconditions.
         let domain = format!("gui/{}", unsafe { libc::getuid() });
         let printed = Command::new("launchctl")
@@ -39,13 +39,13 @@ impl Agent {
         if !printed.status.success() {
             return None;
         }
-        let dir = std::env::temp_dir().join(format!("tether-ipc-test-{unique}"));
+        let dir = std::env::temp_dir().join(format!("openloop-ipc-test-{unique}"));
         std::fs::create_dir_all(&dir).unwrap();
         let agent = Agent { label, domain, dir };
 
         // A copy, so the build's own binary keeps its linker signature.
-        let binary = agent.dir.join("tether-ipc-test-service");
-        std::fs::copy(env!("CARGO_BIN_EXE_tether-ipc-test-service"), &binary).unwrap();
+        let binary = agent.dir.join("openloop-ipc-test-service");
+        std::fs::copy(env!("CARGO_BIN_EXE_openloop-ipc-test-service"), &binary).unwrap();
         run(
             "codesign",
             &["-s", "-", "-f", "-i", SIGNING_IDENTIFIER, path(&binary)],
@@ -129,14 +129,14 @@ fn options(requirement: &str) -> ConnectOptions {
 
 /// Sends `message` and waits on the app's doorbell for the service's answer.
 fn ask(region: &SessionRegion, message: Message) -> Message {
-    let mut producer = region.to_tetherd.producer();
+    let mut producer = region.to_openloopd.producer();
     let mut consumer = region.to_app.consumer();
     let seen = region.app_bell.rings();
     region
-        .to_tetherd
+        .to_openloopd
         .push(&mut producer, &message.into())
         .unwrap();
-    region.tetherd_bell.ring();
+    region.openloopd_bell.ring();
     let deadline = now_ns() + testing::PATIENCE.as_nanos() as i64;
     let mut seen = seen;
     loop {
@@ -260,7 +260,7 @@ fn a_session_shared_between_two_processes() {
 
     let unpinned = Client::connect(
         agent.service(),
-        options(r#"identifier "dev.tether.not-tetherd""#),
+        options(r#"identifier "dev.openloop.not-openloopd""#),
     );
     let refused = unpinned.hello("two_process", "none", 1);
     eprintln!("wrong code-signing requirement: {refused:?}");
@@ -272,14 +272,14 @@ fn a_session_shared_between_two_processes() {
 
 fn ping_pong(region: &SessionRegion) {
     const ROUNDS: usize = 20_000;
-    let mut producer = region.to_tetherd.producer();
+    let mut producer = region.to_openloopd.producer();
     let mut consumer = region.to_app.consumer();
     let (mut wake, mut round_trip) = (Stats::with_capacity(ROUNDS), Stats::with_capacity(ROUNDS));
     for _ in 0..ROUNDS {
         let seen = region.app_bell.rings();
         let sent = now_ns();
         region
-            .to_tetherd
+            .to_openloopd
             .push(
                 &mut producer,
                 &Message::Echo {
@@ -289,7 +289,7 @@ fn ping_pong(region: &SessionRegion) {
                 .into(),
             )
             .unwrap();
-        region.tetherd_bell.ring();
+        region.openloopd_bell.ring();
         let deadline = sent + testing::PATIENCE.as_nanos() as i64;
         let mut seen = seen;
         let answer = loop {
@@ -355,7 +355,7 @@ fn access_units(region: &SessionRegion) {
                 Err(error) => panic!("{error:?}"),
             }
         }
-        region.tetherd_bell.ring();
+        region.openloopd_bell.ring();
         total += len;
     }
     let answer = ask(

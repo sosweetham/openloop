@@ -7,7 +7,7 @@ use std::ffi::c_char;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use tether_openxr_abi::{
+use openloop_openxr_abi::{
     XR_MIN_HAPTIC_DURATION, XrAction, XrActionCreateInfo, XrActionSet, XrActionSetCreateInfo,
     XrActionStateBoolean, XrActionStateFloat, XrActionStateGetInfo, XrActionStatePose,
     XrActionStateVector2f, XrActionSuggestedBinding, XrActionType, XrActionsSyncInfo,
@@ -16,8 +16,8 @@ use tether_openxr_abi::{
     XrInstance, XrInteractionProfileState, XrInteractionProfileSuggestedBinding, XrPath, XrResult,
     XrSession, XrSessionActionSetsAttachInfo, XrStructureType, XrTime, XrVector2f,
 };
-use tether_protocol::{ControllerState, Haptics, button};
-use tether_stream::time::now_ns;
+use openloop_protocol::{ControllerState, Haptics, button};
+use openloop_stream::time::now_ns;
 
 use crate::ffi::{self, OK};
 use crate::handles::{handle, id};
@@ -25,7 +25,7 @@ use crate::instance::{self, Instance};
 use crate::session::{self, Session};
 use crate::state::OBJECTS;
 
-/// Profiles Tether can feed from Touch controllers, most specific first.
+/// Profiles OpenLoop can feed from Touch controllers, most specific first.
 const PROFILES: [&str; 3] = [
     "/interaction_profiles/meta/touch_plus_controller",
     "/interaction_profiles/oculus/touch_controller",

@@ -5,8 +5,8 @@
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 
-use tether_playout::{ClientTime, ClockMode, Config, OutputTiming, Timestamp};
-use tether_protocol::{AudioFormat, AudioHeader};
+use openloop_playout::{ClientTime, ClockMode, Config, OutputTiming, Timestamp};
+use openloop_protocol::{AudioFormat, AudioHeader};
 
 struct Counting;
 
@@ -51,7 +51,7 @@ const MS: i64 = 1_000_000;
 
 #[test]
 fn pushing_and_rendering_never_allocate() {
-    let (mut writer, playout) = tether_playout::new(Config {
+    let (mut writer, playout) = openloop_playout::new(Config {
         ring_slots: 16,
         ..Config::default()
     });

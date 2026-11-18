@@ -4,8 +4,8 @@ use std::fmt;
 use std::path::Path;
 use std::process::ExitStatus;
 
+use openloop_stream::{PIPELINE_LATENCY_NS, video};
 use serde::Deserialize;
-use tether_stream::{PIPELINE_LATENCY_NS, video};
 
 use crate::harness;
 
@@ -22,7 +22,7 @@ const AUDIO_SEND_DELAY_MS: f64 = 20.0;
 /// the clock mapping moves when a faster ping refines it.
 const AUDIO_SPACING_MS: f64 = 2.0;
 
-/// The fields of `tether-fake-headset`'s report that a run is judged on.
+/// The fields of `openloop-fake-headset`'s report that a run is judged on.
 #[derive(Debug, Deserialize)]
 pub struct Report {
     pub duration_s: f64,
@@ -208,7 +208,7 @@ pub struct Handover {
     pub limit_s: f64,
 }
 
-/// The sound a run must deliver: `tetherd`'s synthetic tone, to be heard the pipeline latency
+/// The sound a run must deliver: `openloopd`'s synthetic tone, to be heard the pipeline latency
 /// after its capture.
 pub struct Sound {
     pub target_delay_ms: f64,
@@ -218,7 +218,7 @@ pub struct Sound {
 
 impl Sound {
     pub fn synthetic() -> Self {
-        let tone = tether_audiotap::Tone::default();
+        let tone = openloop_audiotap::Tone::default();
         Self {
             target_delay_ms: PIPELINE_LATENCY_NS as f64 / 1e6,
             tone_hz: tone.frequency_hz,

@@ -1,4 +1,4 @@
-//! The one system Tether exposes: a head-mounted display shaped by the connected headset's
+//! The one system OpenLoop exposes: a head-mounted display shaped by the connected headset's
 //! device profile, or by Quest 3 defaults until one connects.
 
 use std::ffi::c_void;
@@ -7,13 +7,13 @@ use std::sync::atomic::Ordering;
 
 use objc2::rc::Retained;
 use objc2_metal::MTLCreateSystemDefaultDevice;
-use tether_openxr_abi::{
+use openloop_openxr_abi::{
     XrEnvironmentBlendMode, XrFormFactor, XrGraphicsRequirementsMetalKHR, XrInstance, XrResult,
     XrStructureType, XrSystemGetInfo, XrSystemId, XrSystemProperties,
     XrViewConfigurationProperties, XrViewConfigurationType, XrViewConfigurationView,
 };
-use tether_protocol::DeviceProfile;
-use tether_stream::video;
+use openloop_protocol::DeviceProfile;
+use openloop_stream::video;
 
 use crate::ffi::{self, OK};
 use crate::instance::lookup;
@@ -96,10 +96,10 @@ pub unsafe extern "C" fn xr_get_system_properties(
         // SAFETY: caller-provided output struct.
         let props = unsafe { ffi::write(properties) }?;
         ffi::expect_type(props.type_, XrStructureType::XR_TYPE_SYSTEM_PROPERTIES)?;
-        let name = backend().profile().map(|p| format!("Tether: {}", p.name));
+        let name = backend().profile().map(|p| format!("OpenLoop: {}", p.name));
         props.systemId = SYSTEM_ID;
         props.vendorId = 0;
-        ffi::write_str(&mut props.systemName, name.as_deref().unwrap_or("Tether"));
+        ffi::write_str(&mut props.systemName, name.as_deref().unwrap_or("OpenLoop"));
         props.graphicsProperties.maxSwapchainImageWidth = MAX_EYE;
         props.graphicsProperties.maxSwapchainImageHeight = MAX_EYE;
         props.graphicsProperties.maxLayerCount = 16;

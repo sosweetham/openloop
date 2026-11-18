@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::Duration;
 
-use tether_protocol::{
+use openloop_protocol::{
     AudioFormat, AudioHeader, ControllerState, DeviceProfile, Message, PROTOCOL_VERSION,
     ServerHello, Tracking, VideoHeader, View,
 };
@@ -65,7 +65,7 @@ impl Tracked {
     fn extrapolate(
         &self,
         time_ns: i64,
-        f: impl FnOnce(&Tracking) -> (Rigid, tether_protocol::Velocity),
+        f: impl FnOnce(&Tracking) -> (Rigid, openloop_protocol::Velocity),
     ) -> Option<Rigid> {
         let (sample, sample_ns) = self.sample.as_ref()?;
         let (pose, velocity) = f(sample);
@@ -94,7 +94,7 @@ pub struct HeadsetState {
     pub audio: Option<AudioFormat>,
     /// A link is up and its client said hello.
     greeted: bool,
-    /// Tether's menu holds input focus on the headset. Cleared with the link, so a lost headset
+    /// OpenLoop's menu holds input focus on the headset. Cleared with the link, so a lost headset
     /// never leaves an app unfocused.
     focus_lost: bool,
 }
@@ -194,7 +194,7 @@ impl Headset {
     pub fn accept(self: &Arc<Self>, mut transport: Box<dyn Transport>) {
         let weak = Arc::downgrade(self);
         thread::Builder::new()
-            .name("tether-accept".into())
+            .name("openloop-accept".into())
             .spawn(move || {
                 while let Ok(link) = transport.accept() {
                     let Some(headset) = weak.upgrade() else {
@@ -204,7 +204,7 @@ impl Headset {
                     // accepted at once; `serve` retires whichever link it replaces.
                     let link: Arc<dyn Link> = Arc::from(link);
                     thread::Builder::new()
-                        .name("tether-link".into())
+                        .name("openloop-link".into())
                         .spawn(move || headset.serve(link))
                         .expect("spawning a link thread");
                 }
@@ -299,7 +299,7 @@ impl Headset {
 
         let pinger = Arc::downgrade(&link);
         thread::Builder::new()
-            .name("tether-ping".into())
+            .name("openloop-ping".into())
             .spawn(move || {
                 while let Some(link) = pinger.upgrade() {
                     if link.send(&Message::ClockPing { mac_ns: now_ns() }).is_err() {
@@ -397,7 +397,7 @@ impl Headset {
     }
 }
 
-fn pose_is_sane(p: &tether_protocol::Pose) -> bool {
+fn pose_is_sane(p: &openloop_protocol::Pose) -> bool {
     let norm: f32 = p.orientation.iter().map(|q| q * q).sum();
     p.position
         .iter()
@@ -417,7 +417,7 @@ pub(crate) fn tracking_is_sane(t: &Tracking) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tether_protocol::{Pose, Velocity};
+    use openloop_protocol::{Pose, Velocity};
 
     #[test]
     fn a_retired_link_holds_the_last_pose() {

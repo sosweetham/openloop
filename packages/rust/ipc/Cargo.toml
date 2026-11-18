@@ -1,12 +1,12 @@
 [package]
-name = "tether-ipc"
+name = "openloop-ipc"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
 
 [[bin]]
-name = "tether-ipc-test-service"
+name = "openloop-ipc-test-service"
 path = "src/bin/test_service.rs"
 test = false
 doc = false

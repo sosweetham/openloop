@@ -1,5 +1,5 @@
 //! A stand-in for the tap: a generated tone written to the capture ring in chunks stamped with
-//! the Mac clock, the way a device's IOProc delivers them, so tetherd and the end-to-end tests
+//! the Mac clock, the way a device's IOProc delivers them, so openloopd and the end-to-end tests
 //! run the same packet path without Core Audio or the capture permission.
 
 use std::f64::consts::TAU;

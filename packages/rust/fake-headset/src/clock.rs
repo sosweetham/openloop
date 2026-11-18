@@ -1,8 +1,8 @@
 //! The fake headset's clock: CLOCK_MONOTONIC, as on the Quest, moved by an offset and run fast or
 //! slow by a drift, so the Mac's clock mapping has real work to do.
 
+use openloop_protocol::ClientTime;
 use serde::Serialize;
-use tether_protocol::ClientTime;
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize)]
 pub struct ClockModel {

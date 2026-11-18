@@ -7,14 +7,14 @@ use std::time::Duration;
 use objc2::rc::Retained;
 use objc2::runtime::ProtocolObject;
 use objc2_metal::MTLCommandQueue;
-use tether_openxr_abi::{
+use openloop_openxr_abi::{
     XrCompositionLayerBaseHeader, XrEnvironmentBlendMode, XrEventDataReferenceSpaceChangePending,
     XrEventDataSessionStateChanged, XrFrameBeginInfo, XrFrameEndInfo, XrFrameState,
     XrFrameWaitInfo, XrGraphicsBindingMetalKHR, XrInstance, XrReferenceSpaceType, XrResult,
     XrSession, XrSessionBeginInfo, XrSessionCreateInfo, XrSessionState, XrStructureType,
 };
-use tether_stream::pose::{DEFAULT_HEAD, Rigid};
-use tether_stream::time::now_ns;
+use openloop_stream::pose::{DEFAULT_HEAD, Rigid};
+use openloop_stream::time::now_ns;
 
 use crate::actions::SessionInput;
 use crate::ffi::{self, OK};
@@ -88,7 +88,7 @@ impl Session {
             == XrSessionState::XR_SESSION_STATE_FOCUSED
     }
 
-    /// Moves a running session between FOCUSED and VISIBLE as Tether's menu on the headset takes
+    /// Moves a running session between FOCUSED and VISIBLE as OpenLoop's menu on the headset takes
     /// and returns input focus. VISIBLE is how OpenXR tells an app that a system overlay has the
     /// input: apps keep rendering but pause and hide their controllers.
     fn track_focus(&self, session: u64) {
@@ -116,7 +116,7 @@ impl Session {
         });
     }
 
-    /// Queues XR_SESSION_STATE_LOSS_PENDING once the `tetherd` holding the session has gone
+    /// Queues XR_SESSION_STATE_LOSS_PENDING once the `openloopd` holding the session has gone
     /// away; true from then on. "The application should destroy the current session"
     /// (XrSessionState, XR_SESSION_STATE_LOSS_PENDING); until it does, the session paces
     /// frames and they return the XR_SESSION_LOSS_PENDING success code.
@@ -137,7 +137,7 @@ impl Session {
                 state: XrSessionState::XR_SESSION_STATE_LOSS_PENDING,
                 time: now_ns(),
             });
-            crate::log!("tetherd went away and took session {session} with it: loss pending");
+            crate::log!("openloopd went away and took session {session} with it: loss pending");
         }
         true
     }
@@ -456,7 +456,7 @@ pub unsafe extern "C" fn xr_wait_frame(
         }
         s.frame.lock().unwrap_or_else(|e| e.into_inner()).waited = true;
 
-        // tetherd times the app's sound by the same latency, so picture and sound stay together.
+        // openloopd times the app's sound by the same latency, so picture and sound stay together.
         state.predictedDisplayTime = deadline + s.link.latency_ns();
         state.predictedDisplayPeriod = period;
         state.shouldRender = s.is_visible() as u32;

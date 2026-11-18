@@ -1,6 +1,6 @@
-//! The contract between the runtime and `tetherd`: the NSXPC control plane, the shared-memory
+//! The contract between the runtime and `openloopd`: the NSXPC control plane, the shared-memory
 //! session region both processes map, and the wait-free primitives the region is built from.
-//! See `docs/ARCHITECTURE.md` § Runtime ↔ tetherd.
+//! See `docs/ARCHITECTURE.md` § Runtime ↔ openloopd.
 //!
 //! Everything in the region is written by exactly one process, and each side treats what the
 //! other wrote as untrusted: a misbehaving peer can feed garbage or stall its own stream, never
@@ -30,32 +30,32 @@ pub use ring::{Consumer, Corrupt, Producer, PushError, SpscRing};
 pub use snapshot::{Publisher, ReadError, Snapshots, Versioned};
 
 /// Bumped on any incompatible change to the NSXPC protocol or the session region. The runtime
-/// and `tetherd` refuse each other across versions.
+/// and `openloopd` refuse each other across versions.
 pub const IPC_VERSION: u32 = 1;
 
-/// `tetherd`'s Mach service, registered by its launchd plist.
-pub const SERVICE_NAME: &str = "dev.tether.tetherd";
+/// `openloopd`'s Mach service, registered by its launchd plist.
+pub const SERVICE_NAME: &str = "dev.openloop.openloopd";
 
-/// Points the runtime at another `tetherd`'s Mach service, such as a test agent's.
-pub const SERVICE_VAR: &str = "TETHER_SERVICE";
+/// Points the runtime at another `openloopd`'s Mach service, such as a test agent's.
+pub const SERVICE_VAR: &str = "OPENLOOP_SERVICE";
 
-/// `tetherd`'s code-signing identifier, which the runtime pins.
-pub const TETHERD_IDENTIFIER: &str = "dev.tether.tetherd";
+/// `openloopd`'s code-signing identifier, which the runtime pins.
+pub const OPENLOOPD_IDENTIFIER: &str = "dev.openloop.openloopd";
 
-/// The Apple Development team whose certificate signs `tetherd`: `TETHER_TEAM_ID` at build time
+/// The Apple Development team whose certificate signs `openloopd`: `OPENLOOP_TEAM_ID` at build time
 /// (build.rs, set by scripts/signing.sh), empty when the build had none.
-pub const TEAM_ID: &str = env!("TETHER_TEAM_ID");
+pub const TEAM_ID: &str = env!("OPENLOOP_TEAM_ID");
 
-/// What `tetherd`'s signature must satisfy before the runtime exchanges anything with it
+/// What `openloopd`'s signature must satisfy before the runtime exchanges anything with it
 /// (csreq(1), TN3127): any process of the user's can register a Mach service name, but only the
-/// team that built Tether can sign this identifier. A build without a team checks the identifier
+/// team that built OpenLoop can sign this identifier. A build without a team checks the identifier
 /// alone.
-pub fn tetherd_requirement() -> String {
+pub fn openloopd_requirement() -> String {
     if TEAM_ID.is_empty() {
-        format!("identifier \"{TETHERD_IDENTIFIER}\"")
+        format!("identifier \"{OPENLOOPD_IDENTIFIER}\"")
     } else {
         format!(
-            "identifier \"{TETHERD_IDENTIFIER}\" and anchor apple generic \
+            "identifier \"{OPENLOOPD_IDENTIFIER}\" and anchor apple generic \
              and certificate leaf[subject.OU] = \"{TEAM_ID}\""
         )
     }
@@ -74,8 +74,8 @@ pub fn service_name() -> String {
 mod tests {
     #[test]
     fn the_requirement_names_the_identifier_and_team() {
-        let requirement = super::tetherd_requirement();
-        assert!(requirement.contains(super::TETHERD_IDENTIFIER));
+        let requirement = super::openloopd_requirement();
+        assert!(requirement.contains(super::OPENLOOPD_IDENTIFIER));
         assert!(requirement.contains(super::TEAM_ID));
     }
 }

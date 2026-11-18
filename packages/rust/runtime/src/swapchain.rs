@@ -11,7 +11,7 @@ use objc2_metal::{
     MTLCommandQueue, MTLDevice, MTLPixelFormat, MTLStorageMode, MTLTexture, MTLTextureDescriptor,
     MTLTextureType, MTLTextureUsage,
 };
-use tether_openxr_abi::{
+use openloop_openxr_abi::{
     XR_SWAPCHAIN_USAGE_UNORDERED_ACCESS_BIT, XrResult, XrSession, XrStructureType, XrSwapchain,
     XrSwapchainCreateInfo, XrSwapchainImageAcquireInfo, XrSwapchainImageBaseHeader,
     XrSwapchainImageMetalKHR, XrSwapchainImageReleaseInfo, XrSwapchainImageWaitInfo,

@@ -1,4 +1,4 @@
-//! The two one-shot runs a person makes at the Mac under tetherd's signing identity: asking for
+//! The two one-shot runs a person makes at the Mac under openloopd's signing identity: asking for
 //! the System Audio Recording permission, and checking a live capture against a known tone.
 //! Both tap an `afplay` child, never a real app, and capture once, never retrying. Run them only
 //! as a launchd job: TCC holds a process started from a shell to the shell's app instead.
@@ -20,7 +20,7 @@ use crate::time::now_ns;
 pub struct ProbeOptions {
     /// Where the test sounds, the capture and the report go.
     pub out_dir: PathBuf,
-    /// The block marker, shared with tetherd so a block seen here holds there too.
+    /// The block marker, shared with openloopd so a block seen here holds there too.
     pub marker: Option<PathBuf>,
 }
 
@@ -88,7 +88,7 @@ pub fn request_permission(options: &ProbeOptions) -> io::Result<Outcome> {
 }
 
 /// Captures a 3 s, 440 Hz tone that `afplay` plays at -29 dBFS, through the same tap,
-/// aggregate, IOProc, ring and packetizer tetherd uses, and measures what arrived.
+/// aggregate, IOProc, ring and packetizer openloopd uses, and measures what arrived.
 pub fn live_check(options: &ProbeOptions) -> io::Result<Outcome> {
     let log = Log::new();
     let rate = 48_000u32;

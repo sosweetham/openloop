@@ -126,7 +126,7 @@ impl Hal for CoreAudio {
         // HAL fills in the process's bundle ID and would tap anything else that shares it.
         // SAFETY: plain property setters on a description nothing else holds.
         unsafe {
-            description.setName(&NSString::from_str("Tether"));
+            description.setName(&NSString::from_str("OpenLoop"));
             description.setUUID(&NSUUID::UUID());
             description.setPrivate(true);
             description.setMuteBehavior(CATapMuteBehavior::MutedWhenTapped);
@@ -178,10 +178,10 @@ impl Hal for CoreAudio {
         // device never reuses a UID.
         self.aggregates += 1;
         let uid = CFString::from_str(&format!(
-            "dev.tether.audiotap.{pid}.{tap_uid}.{}",
+            "dev.openloop.audiotap.{pid}.{tap_uid}.{}",
             self.aggregates
         ));
-        let name = CFString::from_str("Tether Capture");
+        let name = CFString::from_str("OpenLoop Capture");
         let tap_uid = CFString::from_str(tap_uid);
         let (one, zero) = (CFNumber::new_i32(1), CFNumber::new_i32(0));
 

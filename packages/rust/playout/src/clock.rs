@@ -165,7 +165,7 @@ impl OutputClock {
 
 #[cfg(all(test, not(loom)))]
 mod tests {
-    use tether_protocol::ClientTime;
+    use openloop_protocol::ClientTime;
 
     use super::*;
     use crate::playout::Timestamp;

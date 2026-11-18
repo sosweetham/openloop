@@ -1,17 +1,17 @@
 //! What the headset shows and plays: one session's video and sound at a time, the session begun
-//! last. The app still encodes until R2 S3; `tetherd` puts each access unit's display time on
+//! last. The app still encodes until R2 S3; `openloopd` puts each access unit's display time on
 //! the headset's clock, opens every stream with a `ServerHello` and a keyframe, and ends it with
 //! `StreamEnded`. Sound is timed the same way (docs/ARCHITECTURE.md § Audio).
 
 use std::sync::{Arc, Mutex, PoisonError};
 
-use tether_ipc::now_ns;
-use tether_ipc::records::{self, AccessUnit};
-use tether_protocol::{
+use openloop_ipc::now_ns;
+use openloop_ipc::records::{self, AccessUnit};
+use openloop_protocol::{
     AudioFormat, AudioHeader, ClientTime, Fov, Haptics, MAX_AUDIO_CHANNELS, Message, Pose,
     VideoHeader, View,
 };
-use tether_stream::{Headset, HeadsetState, PIPELINE_LATENCY_NS};
+use openloop_stream::{Headset, HeadsetState, PIPELINE_LATENCY_NS};
 
 use crate::daemon::Hub;
 use crate::session::{Session, Video};

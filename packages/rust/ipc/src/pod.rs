@@ -1,5 +1,5 @@
 //! Plain data that crosses the process boundary, and the atomic-word cell it lives in there
-//! (docs/ARCHITECTURE.md § Runtime ↔ tetherd).
+//! (docs/ARCHITECTURE.md § Runtime ↔ openloopd).
 
 use std::cell::UnsafeCell;
 use std::mem::{MaybeUninit, size_of};

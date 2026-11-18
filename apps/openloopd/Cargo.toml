@@ -1,0 +1,21 @@
+[package]
+name = "openloopd"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2"
+objc2-metal = "0.3"
+serde_json = "1"
+openloop-audiotap = { path = "../../packages/rust/audiotap" }
+openloop-ipc = { path = "../../packages/rust/ipc" }
+openloop-protocol = { path = "../../packages/rust/protocol" }
+openloop-stream = { path = "../../packages/rust/stream" }
+
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+openloop-fake-headset = { path = "../../packages/rust/fake-headset" }
+
+[lints]
+workspace = true

@@ -1,14 +1,14 @@
-//! The headset's profile and tracking as tether-ipc's shared-memory records: `tetherd` publishes
+//! The headset's profile and tracking as openloop-ipc's shared-memory records: `openloopd` publishes
 //! them with these conversions and the runtime reads them back with their inverses
-//! (docs/ARCHITECTURE.md § Runtime ↔ tetherd).
+//! (docs/ARCHITECTURE.md § Runtime ↔ openloopd).
 
-use tether_ipc::records::{self, Controller, HeadsetInfo, TrackingSample};
-use tether_protocol::{ControllerState, DeviceProfile, Fov, Pose, Tracking, Velocity, View};
+use openloop_ipc::records::{self, Controller, HeadsetInfo, TrackingSample};
+use openloop_protocol::{ControllerState, DeviceProfile, Fov, Pose, Tracking, Velocity, View};
 
 use crate::headset::{Tracked, tracking_is_sane};
 
 pub fn headset_info(profile: &DeviceProfile, connected: bool) -> HeadsetInfo {
-    let mut info = <HeadsetInfo as tether_ipc::Pod>::zeroed();
+    let mut info = <HeadsetInfo as openloop_ipc::Pod>::zeroed();
     info.eye_width = profile.eye_width;
     info.eye_height = profile.eye_height;
     info.refresh_rate = profile.refresh_rate;
@@ -28,7 +28,7 @@ pub fn headset_info(profile: &DeviceProfile, connected: bool) -> HeadsetInfo {
     info
 }
 
-/// What `tetherd` wrote; a string without a terminator reads as empty.
+/// What `openloopd` wrote; a string without a terminator reads as empty.
 pub fn device_profile(info: &HeadsetInfo) -> DeviceProfile {
     DeviceProfile {
         name: info.name().unwrap_or_default().to_owned(),
@@ -213,13 +213,13 @@ mod tests {
         );
         assert!(
             !tracked(&sample, false).live,
-            "a stale tetherd holds the pose"
+            "a stale openloopd holds the pose"
         );
     }
 
     #[test]
     fn a_garbage_sample_reads_as_none() {
-        let mut sample = <TrackingSample as tether_ipc::Pod>::zeroed();
+        let mut sample = <TrackingSample as openloop_ipc::Pod>::zeroed();
         sample.flags = TrackingSample::LIVE;
         assert!(
             tracked(&sample, true).sample.is_none(),

@@ -1,3 +1,3 @@
-# Instance extensions Tether advertises. The dispatch table, the extension list and the
+# Instance extensions OpenLoop advertises. The dispatch table, the extension list and the
 # per-extension gating are generated from this file by scripts/openxr-abi.sh.
 XR_KHR_metal_enable

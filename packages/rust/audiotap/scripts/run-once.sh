@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds tether-audiotap, signs it as tetherd, and runs it ONCE as a one-shot launchd job, so
+# Builds openloop-audiotap, signs it as openloopd, and runs it ONCE as a one-shot launchd job, so
 # TCC holds the tool itself responsible for the capture. A process started from a shell is
 # attributed to the shell's app, which would then get the prompt and the grant.
 #
@@ -40,36 +40,36 @@ fi
 crate="$(cd "$(dirname "$0")/.." && pwd)"
 root="$(cd "$crate/../../.." && pwd)"
 out_root="$root/build/audiotap"
-bin="$out_root/tether-audiotap"
+bin="$out_root/openloop-audiotap"
 marker="$out_root/blocked"
-label="dev.tether.audiotap.$mode"
+label="dev.openloop.audiotap.$mode"
 domain="gui/$(id -u)"
 # shellcheck source=../../../../scripts/signing.sh
 . "$root/scripts/signing.sh"
-tether_signing || exit 1
-identity="$TETHER_SIGN_IDENTITY"
-team="$TETHER_TEAM_ID"
+openloop_signing || exit 1
+identity="$OPENLOOP_SIGN_IDENTITY"
+team="$OPENLOOP_TEAM_ID"
 
 # The Command Line Tools can ship an SDK newer than their own linker understands.
 export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
 target="${CARGO_TARGET_DIR:-$root/target}"
 
 mkdir -p "$out_root"
-cargo build --manifest-path "$root/Cargo.toml" --release -p tether-audiotap --bin tether-audiotap >&2
+cargo build --manifest-path "$root/Cargo.toml" --release -p openloop-audiotap --bin openloop-audiotap >&2
 
 # TCC keys a bare binary's grant on its path plus its code requirement (identifier and signing
 # certificate), so the signed copy always lands at the same path. Sign a copy and rename it into
 # place: rewriting a signed binary that is running would kill it.
-cp "$target/release/tether-audiotap" "$bin.new"
-codesign --force --sign "$identity" --identifier dev.tether.tetherd --options runtime \
+cp "$target/release/openloop-audiotap" "$bin.new"
+codesign --force --sign "$identity" --identifier dev.openloop.openloopd --options runtime \
   --entitlements "$crate/audiotap.entitlements" --timestamp=none "$bin.new"
 codesign --verify --strict "$bin.new"
 details="$(codesign -dvv "$bin.new" 2>&1)"
-grep -qx 'Identifier=dev.tether.tetherd' <<<"$details" || { echo "wrong signing identifier" >&2; exit 1; }
+grep -qx 'Identifier=dev.openloop.openloopd' <<<"$details" || { echo "wrong signing identifier" >&2; exit 1; }
 grep -qx "TeamIdentifier=$team" <<<"$details" || { echo "not signed by team $team" >&2; exit 1; }
 grep -q '^Info.plist entries=' <<<"$details" || { echo "Info.plist is not bound to the signature" >&2; exit 1; }
 embedded="$(launchctl plist __TEXT,__info_plist "$bin.new")"
-grep -q '"CFBundleIdentifier" = "dev.tether.tetherd"' <<<"$embedded" || { echo "embedded Info.plist lacks the bundle identifier" >&2; exit 1; }
+grep -q '"CFBundleIdentifier" = "dev.openloop.openloopd"' <<<"$embedded" || { echo "embedded Info.plist lacks the bundle identifier" >&2; exit 1; }
 grep -q 'NSAudioCaptureUsageDescription' <<<"$embedded" || { echo "embedded Info.plist lacks NSAudioCaptureUsageDescription" >&2; exit 1; }
 codesign -d --entitlements - --xml "$bin.new" 2>/dev/null | grep -q 'com.apple.security.device.audio-input' \
   || { echo "missing the audio-input entitlement" >&2; exit 1; }
@@ -95,14 +95,14 @@ if [[ -e "$marker" ]]; then
     exit 2
   fi
 fi
-for other in dev.tether.audiotap.permission dev.tether.audiotap.check; do
+for other in dev.openloop.audiotap.permission dev.openloop.audiotap.check; do
   if launchctl print "$domain/$other" >/dev/null 2>&1; then
     echo "refusing: $other is still loaded" >&2
     exit 1
   fi
 done
 if pgrep -f "$bin" >/dev/null; then
-  echo "refusing: tether-audiotap is already running" >&2
+  echo "refusing: openloop-audiotap is already running" >&2
   exit 1
 fi
 # A pending prompt, for any app, makes every new IOProc registration queue inside coreaudiod.
@@ -160,7 +160,7 @@ cleanup() {
 trap cleanup EXIT
 
 if [[ "$mode" == permission ]]; then
-  echo "A System Audio Recording prompt for \"tether-audiotap\" should appear on this Mac within"
+  echo "A System Audio Recording prompt for \"openloop-audiotap\" should appear on this Mac within"
   echo "seconds. Click Allow. (The tool waits for the answer; if none comes it stops without retrying.)"
 fi
 : >"$run_dir/stdout.log"

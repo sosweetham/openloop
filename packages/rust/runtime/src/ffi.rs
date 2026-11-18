@@ -1,7 +1,7 @@
 use std::ffi::{CStr, c_char};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
-use tether_openxr_abi::{XrResult, XrStructureType};
+use openloop_openxr_abi::{XrResult, XrStructureType};
 
 /// Runs an entry point's body, turning a panic into `XR_ERROR_RUNTIME_FAILURE`
 /// instead of unwinding into (or aborting) the host app.
@@ -144,8 +144,8 @@ mod tests {
     #[test]
     fn write_str_truncates_and_terminates() {
         let mut buf = [1 as c_char; 4];
-        write_str(&mut buf, "tether");
-        assert_eq!(buf, [b't' as c_char, b'e' as c_char, b't' as c_char, 0]);
+        write_str(&mut buf, "openloop");
+        assert_eq!(buf, [b'o' as c_char, b'p' as c_char, b'e' as c_char, 0]);
     }
 
     #[test]

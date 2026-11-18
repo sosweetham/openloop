@@ -2,7 +2,7 @@
 //! its underrun count. Changing the size is left to that thread: playout never calls
 //! `AAudioStream_setBufferSizeInFrames` from the data callback.
 
-use tether_protocol::ClientTime;
+use openloop_protocol::ClientTime;
 
 pub struct BufferTuner {
     burst: i32,

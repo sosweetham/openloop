@@ -1,4 +1,4 @@
-use tether_openxr_abi::XrVersion;
+use openloop_openxr_abi::XrVersion;
 
 pub const fn make(major: u64, minor: u64, patch: u64) -> XrVersion {
     (major << 48) | ((minor & 0xffff) << 32) | (patch & 0xffff_ffff)
@@ -29,7 +29,7 @@ pub fn runtime() -> XrVersion {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tether_openxr_abi::{XR_API_VERSION_1_0, XR_API_VERSION_1_1, XR_CURRENT_API_VERSION};
+    use openloop_openxr_abi::{XR_API_VERSION_1_0, XR_API_VERSION_1_1, XR_CURRENT_API_VERSION};
 
     #[test]
     fn matches_the_headers_encoding() {

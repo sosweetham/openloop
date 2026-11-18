@@ -1,11 +1,11 @@
 //! The session report: what the Mac sent and when, the checks it failed, and the numbers the
 //! quality gates are judged on. Serialises to the JSON the command line writes.
 
-use serde::Serialize;
-use tether_protocol::{
+use openloop_protocol::{
     AudioFormat, AudioPacket, ClientTime, DeviceProfile, Haptics, PROTOCOL_VERSION, ServerHello,
     VideoFrame,
 };
+use serde::Serialize;
 
 use crate::audio::{AudioCheck, AudioReport};
 use crate::clock::ClockModel;

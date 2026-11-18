@@ -1,12 +1,12 @@
 //! Keeps the headset's `adb reverse` tunnel up while a headset is attached: the Quest client
-//! connects to its own `127.0.0.1:47800`, which adb carries to `tetherd`'s listener
+//! connects to its own `127.0.0.1:47800`, which adb carries to `openloopd`'s listener
 //! (docs/ARCHITECTURE.md § Transports).
 //!
 //! Devices are followed through the adb server's `host:track-devices` service (adb's
 //! `docs/dev/services.md`): the server pushes the device list on every change, so nothing polls
 //! while no headset is attached. The reverse itself is set with the SDK's `adb` binary, exactly
 //! as `adb reverse` sets it, and re-checked every few seconds while a device is attached,
-//! because Android drops it whenever USB or adb resets. With no adb server running, `tetherd`
+//! because Android drops it whenever USB or adb resets. With no adb server running, `openloopd`
 //! starts one with `adb start-server`.
 
 use std::collections::HashSet;
@@ -133,7 +133,7 @@ pub struct Keeper<T: Tool> {
     pub server: SocketAddr,
     /// The port the headset client connects to on its own loopback.
     pub device_port: u16,
-    /// `tetherd`'s listener.
+    /// `openloopd`'s listener.
     pub host_port: u16,
     pub stop: Arc<AtomicBool>,
 }
@@ -150,7 +150,7 @@ pub fn server_address() -> SocketAddr {
 impl<T: Tool> Keeper<T> {
     pub fn spawn(self) {
         let spawned = thread::Builder::new()
-            .name("tetherd-adb".into())
+            .name("openloopd-adb".into())
             .spawn(move || self.run());
         if let Err(e) = spawned {
             log!("cannot start the adb tunnel keeper: {e}");

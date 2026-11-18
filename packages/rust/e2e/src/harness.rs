@@ -16,7 +16,7 @@ pub struct WorkDir {
 
 impl WorkDir {
     pub fn create() -> io::Result<Self> {
-        let path = std::env::temp_dir().join(format!("tether-e2e-{}", std::process::id()));
+        let path = std::env::temp_dir().join(format!("openloop-e2e-{}", std::process::id()));
         if path.exists() {
             fs::remove_dir_all(&path)?;
         }
@@ -38,12 +38,12 @@ impl WorkDir {
 pub fn write_manifest(path: &Path, library: &Path) -> io::Result<()> {
     let manifest = serde_json::json!({
         "file_format_version": "1.0.0",
-        "runtime": { "name": "Tether", "library_path": fs::canonicalize(library)? },
+        "runtime": { "name": "OpenLoop", "library_path": fs::canonicalize(library)? },
     });
     fs::write(path, serde_json::to_vec_pretty(&manifest)?)
 }
 
-/// `tetherd` under a launchd label of its own, which is booted out however the run ends. Its
+/// `openloopd` under a launchd label of its own, which is booted out however the run ends. Its
 /// Mach service is named after the label, so nothing reaches it unless told to, and it never
 /// touches adb or the real headset's port.
 pub struct Agent {
@@ -65,8 +65,8 @@ impl Agent {
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_nanos());
-        let label = format!("dev.tether.test.e2e.{}.{nanos}", std::process::id());
-        let log = dir.file("tetherd.log");
+        let label = format!("dev.openloop.test.e2e.{}.{nanos}", std::process::id());
+        let log = dir.file("openloopd.log");
         let plist = dir.file(&format!("{label}.plist"));
         let reports = dir.file("sessions");
         let audio_state = dir.file("audio-state");
@@ -149,7 +149,7 @@ impl Agent {
             }
             if Instant::now() >= deadline {
                 return Err(format!(
-                    "tetherd logged none of {markers:?} within {timeout:?}:\n{}",
+                    "openloopd logged none of {markers:?} within {timeout:?}:\n{}",
                     tail(&self.log, 20)
                 ));
             }
@@ -305,7 +305,7 @@ mod tests {
     #[test]
     fn the_manifest_names_the_library_absolutely() {
         let dir = WorkDir {
-            path: std::env::temp_dir().join(format!("tether-e2e-test-{}", std::process::id())),
+            path: std::env::temp_dir().join(format!("openloop-e2e-test-{}", std::process::id())),
         };
         fs::create_dir_all(&dir.path).unwrap();
         let library = dir.file("lib \"quoted\".dylib");

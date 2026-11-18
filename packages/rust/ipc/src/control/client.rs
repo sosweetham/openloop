@@ -1,4 +1,4 @@
-//! The runtime's side: one connection to `tetherd`, and calls that wait at most a timeout.
+//! The runtime's side: one connection to `openloopd`, and calls that wait at most a timeout.
 
 use std::error::Error;
 use std::ffi::c_void;
@@ -29,7 +29,7 @@ use crate::{IPC_VERSION, Pod};
 
 /// Sends a protocol message to an NSXPC proxy. The proxy answers by forwarding, so its class
 /// implements none of the methods and objc2's `msg_send!` would reject the send in debug
-/// builds; the argument types here are the protocol's (objc/TetherIPC.m).
+/// builds; the argument types here are the protocol's (objc/OpenLoopIPC.m).
 macro_rules! send {
     ($proxy:expr, $sel:expr $(, $argument:expr => $type:ty)* $(,)?) => {{
         let proxy: &AnyObject = $proxy;
@@ -43,13 +43,13 @@ macro_rules! send {
 }
 
 pub struct ConnectOptions {
-    /// tetherd must satisfy this code-signing requirement (csreq(1) syntax) before any message
+    /// openloopd must satisfy this code-signing requirement (csreq(1) syntax) before any message
     /// is exchanged. It must parse: Foundation raises on a malformed one.
     pub code_signing_requirement: Option<String>,
-    /// How long one call waits for `tetherd`: NSXPC itself never times out a call to a peer
+    /// How long one call waits for `openloopd`: NSXPC itself never times out a call to a peer
     /// that is alive but stuck.
     pub timeout: Duration,
-    /// `tetherd` exited or crashed; the next call relaunches it through launchd.
+    /// `openloopd` exited or crashed; the next call relaunches it through launchd.
     pub on_interrupted: Option<Box<dyn Fn() + Send + Sync>>,
     /// The connection is over for good: the service does not exist, or it was invalidated.
     pub on_invalidated: Option<Box<dyn Fn() + Send + Sync>>,
@@ -68,10 +68,10 @@ impl Default for ConnectOptions {
 
 #[derive(Debug)]
 pub enum CallError {
-    /// `tetherd` answered no.
+    /// `openloopd` answered no.
     Refused(Status),
     Version {
-        tetherd: u32,
+        openloopd: u32,
     },
     /// NSXPC's error: 4097 interrupted, 4099 invalid (no such service, or invalidated), 4102
     /// the code-signing requirement failed (`FoundationErrors.h`).
@@ -80,7 +80,7 @@ pub enum CallError {
         description: String,
     },
     TimedOut,
-    /// `tetherd` answered with something this build cannot use.
+    /// `openloopd` answered with something this build cannot use.
     BadReply(&'static str),
     Region(RegionError),
 }
@@ -88,18 +88,18 @@ pub enum CallError {
 impl fmt::Display for CallError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Refused(status) => write!(f, "tetherd refused: {status:?}"),
-            Self::Version { tetherd } => {
+            Self::Refused(status) => write!(f, "openloopd refused: {status:?}"),
+            Self::Version { openloopd } => {
                 write!(
                     f,
-                    "tetherd speaks IPC version {tetherd}, this runtime {IPC_VERSION}"
+                    "openloopd speaks IPC version {openloopd}, this runtime {IPC_VERSION}"
                 )
             }
             Self::Connection { code, description } => {
-                write!(f, "connection to tetherd failed ({code}): {description}")
+                write!(f, "connection to openloopd failed ({code}): {description}")
             }
-            Self::TimedOut => write!(f, "tetherd did not answer in time"),
-            Self::BadReply(what) => write!(f, "tetherd sent a bad reply: {what}"),
+            Self::TimedOut => write!(f, "openloopd did not answer in time"),
+            Self::BadReply(what) => write!(f, "openloopd sent a bad reply: {what}"),
             Self::Region(error) => write!(f, "the session region is unusable: {error}"),
         }
     }
@@ -162,7 +162,7 @@ impl Client {
         }
     }
 
-    /// `tetherd`'s identity as the kernel reports it; zero before the first reply.
+    /// `openloopd`'s identity as the kernel reports it; zero before the first reply.
     pub fn peer(&self) -> Peer {
         Peer::of(&self.connection)
     }
@@ -199,7 +199,7 @@ impl Client {
                             boot_id,
                             headset,
                         }),
-                        Status::VersionMismatch => Err(CallError::Version { tetherd: version }),
+                        Status::VersionMismatch => Err(CallError::Version { openloopd: version }),
                         status => Err(CallError::Refused(status)),
                     })
                 },

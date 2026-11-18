@@ -1,11 +1,11 @@
 # Third-party notices
 
-Tether's own code is licensed under either the MIT licence (`LICENSE-MIT`) or the Apache
+OpenLoop's own code is licensed under either the MIT licence (`LICENSE-MIT`) or the Apache
 License 2.0 (`LICENSE-APACHE`), at your option. This file lists the third-party material in
-Tether's source tree and in its builds. For each item it gives the licence, and where the
-item offers a choice, the licence Tether uses it under.
+OpenLoop's source tree and in its builds. For each item it gives the licence, and where the
+item offers a choice, the licence OpenLoop uses it under.
 
-No Tether binaries are distributed yet. The crate list in section 2 was made from `Cargo.lock`
+No OpenLoop binaries are distributed yet. The crate list in section 2 was made from `Cargo.lock`
 on 2026-11-18; regenerate it whenever `Cargo.lock` changes, and ship this file with any binary
 release.
 
@@ -21,7 +21,7 @@ Both come from OpenXR-SDK-Source release-1.1.65.
     Copyright (c) 2017-2026 The Khronos Group Inc.
     SPDX-License-Identifier: Apache-2.0 OR MIT
 
-Tether uses them under the MIT licence (section 4.1).
+OpenLoop uses them under the MIT licence (section 4.1).
 
 ### OpenXR-SDK-Source (git submodule)
 
@@ -30,10 +30,10 @@ https://github.com/KhronosGroup/OpenXR-SDK-Source (release-1.1.65). Its files ar
 of this repository. Once fetched, they are under the licences in that project's `LICENSE`
 file and `LICENSES/` directory.
 
-## 2. Rust crates linked into Tether's binaries
+## 2. Rust crates linked into OpenLoop's binaries
 
-"macOS" means `libtether_runtime.dylib`, `tetherd` and `tether-audiotap`. "Quest" means
-`libtether_quest.so` in the Quest app. Where a crate offers several licences, Tether uses it
+"macOS" means `libopenloop_runtime.dylib`, `openloopd` and `openloop-audiotap`. "Quest" means
+`libopenloop_quest.so` in the Quest app. Where a crate offers several licences, OpenLoop uses it
 under the one in "Used under". The texts are in section 4. For each MIT-licensed crate, the
 copyright line below is "the above copyright notice".
 
@@ -275,9 +275,9 @@ that is recognised, and the software is then in the public domain.
 
 ## 5. Trademarks
 
-Tether is an independent project. It is not affiliated with, endorsed by or sponsored by The
+OpenLoop is an independent project. It is not affiliated with, endorsed by or sponsored by The
 Khronos Group, Meta, Apple, Valve, Google or the Godot Foundation. OpenXR and the OpenXR logo
 are trademarks owned by The Khronos Group Inc. Meta Quest, Apple, Mac, macOS, Metal, Apple
 Vision Pro, Steam, Steam Frame, Android and Godot are trademarks of their respective owners.
-These names are used only to describe what Tether works with or is planned to work with.
-Tether has not been through the OpenXR conformance process and does not claim conformance.
+These names are used only to describe what OpenLoop works with or is planned to work with.
+OpenLoop has not been through the OpenXR conformance process and does not claim conformance.

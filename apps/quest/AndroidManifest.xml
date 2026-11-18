@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="tether.quest"
+    package="openloop.quest"
     android:versionCode="1"
     android:versionName="0.1.0"
     android:installLocation="auto">
@@ -25,7 +25,7 @@
     </queries>
 
     <application
-        android:label="Tether"
+        android:label="OpenLoop"
         android:hasCode="false"
         android:extractNativeLibs="true">
 
@@ -39,7 +39,7 @@
             android:resizeableActivity="false"
             android:configChanges="density|keyboard|keyboardHidden|navigation|orientation|screenLayout|screenSize|uiMode"
             android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen">
-            <meta-data android:name="android.app.lib_name" android:value="tether_quest" />
+            <meta-data android:name="android.app.lib_name" android:value="openloop_quest" />
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="com.oculus.intent.category.VR" />

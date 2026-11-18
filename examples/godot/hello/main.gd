@@ -18,12 +18,12 @@ func _ready() -> void:
 		get_viewport().use_xr = true
 		# STAGE never moves on a system recenter, so the game re-centres itself.
 		xr.pose_recentered.connect(func(): XRServer.center_on_hmd(XRServer.RESET_BUT_KEEP_TILT, true))
-		# A system overlay (Tether's menu) has the input: pause and let it draw the controllers.
+		# A system overlay (OpenLoop's menu) has the input: pause and let it draw the controllers.
 		xr.session_visible.connect(_on_focus_lost)
 		xr.session_focussed.connect(_on_focus_regained)
-		print("Tether hello: XR running")
+		print("OpenLoop hello: XR running")
 	else:
-		push_error("Tether hello: OpenXR did not initialize")
+		push_error("OpenLoop hello: OpenXR did not initialize")
 
 	# Tracking and the pause toggle keep running while the game is paused.
 	process_mode = Node.PROCESS_MODE_ALWAYS

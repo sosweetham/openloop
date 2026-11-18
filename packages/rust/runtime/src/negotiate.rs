@@ -1,6 +1,6 @@
 use std::mem::size_of;
 
-use tether_openxr_abi::{
+use openloop_openxr_abi::{
     XR_CURRENT_API_VERSION, XR_CURRENT_LOADER_RUNTIME_VERSION, XR_LOADER_INFO_STRUCT_VERSION,
     XR_RUNTIME_INFO_STRUCT_VERSION, XrLoaderInterfaceStructs, XrNegotiateLoaderInfo,
     XrNegotiateRuntimeRequest, XrResult,
@@ -56,7 +56,7 @@ fn negotiate(info: &XrNegotiateLoaderInfo, request: &mut XrNegotiateRuntimeReque
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tether_openxr_abi::XR_API_VERSION_1_0;
+    use openloop_openxr_abi::XR_API_VERSION_1_0;
 
     fn loader_info() -> XrNegotiateLoaderInfo {
         XrNegotiateLoaderInfo {

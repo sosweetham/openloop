@@ -1,5 +1,5 @@
 use glam::{Quat, Vec3};
-use tether_protocol::{Fov, Pose, Velocity, View};
+use openloop_protocol::{Fov, Pose, Velocity, View};
 
 /// A rigid transform. `a * b` applies `b` first, then `a`.
 #[derive(Clone, Copy, Debug, PartialEq)]

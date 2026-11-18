@@ -1,5 +1,5 @@
 //! A futex-style wakeup word in shared memory (`<os/os_sync_wait_on_address.h>`), and the clock
-//! its deadlines are in (docs/ARCHITECTURE.md § Runtime ↔ tetherd).
+//! its deadlines are in (docs/ARCHITECTURE.md § Runtime ↔ openloopd).
 
 use std::ffi::{c_int, c_void};
 use std::io;

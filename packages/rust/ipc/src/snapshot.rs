@@ -1,4 +1,4 @@
-//! Wait-free single-writer records (docs/ARCHITECTURE.md § Runtime ↔ tetherd).
+//! Wait-free single-writer records (docs/ARCHITECTURE.md § Runtime ↔ openloopd).
 
 use std::sync::atomic::{AtomicU64, Ordering, fence};
 

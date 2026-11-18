@@ -23,5 +23,5 @@ pub static OBJECTS: LazyLock<Objects> = LazyLock::new(Objects::default);
 
 #[macro_export]
 macro_rules! log {
-    ($($arg:tt)*) => { eprintln!("[tether] {}", format_args!($($arg)*)) };
+    ($($arg:tt)*) => { eprintln!("[openloop] {}", format_args!($($arg)*)) };
 }

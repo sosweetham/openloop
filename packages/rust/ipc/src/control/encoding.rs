@@ -1,6 +1,6 @@
 //! Type signatures for the reply blocks Rust creates. NSXPC refuses a block without one ("Block
 //! was not compiled using a compiler that inserts type information about arguments"), and it
-//! must match objc/TetherIPC.m: each string is clang's `_Block_signature` for that reply type,
+//! must match objc/OpenLoopIPC.m: each string is clang's `_Block_signature` for that reply type,
 //! and a test compares them with the protocol's extended method encodings.
 
 use std::ffi::{CStr, c_void};

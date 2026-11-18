@@ -1,12 +1,12 @@
 [package]
-name = "tether-quest"
+name = "openloop-quest"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
 
 [lib]
-name = "tether_quest"
+name = "openloop_quest"
 crate-type = ["cdylib"]
 
 [target.'cfg(target_os = "android")'.dependencies]
@@ -22,8 +22,8 @@ ndk = { version = "0.9", features = ["media", "api-level-29"] }
 ndk-context = "0.1"
 ndk-sys = { version = "0.6", features = ["audio"] }
 openxr = { version = "0.22", features = ["loaded"] }
-tether-playout = { path = "../../packages/rust/playout" }
-tether-protocol = { path = "../../packages/rust/protocol" }
+openloop-playout = { path = "../../packages/rust/playout" }
+openloop-protocol = { path = "../../packages/rust/protocol" }
 
 [lints]
 workspace = true

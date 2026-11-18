@@ -9,7 +9,7 @@ use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Condvar, Mutex, MutexGuard, PoisonError};
 
-use tether_protocol::{
+use openloop_protocol::{
     AudioHeader, AudioPacket, DecodeError, Message, StreamDecoder, USB_PORT, VideoFrame,
     VideoHeader, encode_audio_framed, encode_framed, encode_video_framed,
 };
@@ -20,7 +20,7 @@ const WRITE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
 
 /// Moves the Mac's USB listener off [`USB_PORT`], so tests and a second checkout never take the
 /// port a real headset's `adb reverse` tunnel lands on.
-pub const USB_PORT_VAR: &str = "TETHER_USB_PORT";
+pub const USB_PORT_VAR: &str = "OPENLOOP_USB_PORT";
 
 /// The loopback port the USB listener binds: [`USB_PORT_VAR`] if set and non-empty, else
 /// [`USB_PORT`]. `0` lets the kernel pick a free port, which [`UsbTransport::port`] reports.
@@ -249,8 +249,8 @@ mod tests {
 
     #[test]
     fn audio_waiting_for_the_link_goes_before_video_waiting_for_it() {
+        use openloop_protocol::{AudioFormat, AudioHeader, ClientTime, VideoFrame};
         use std::time::Duration;
-        use tether_protocol::{AudioFormat, AudioHeader, ClientTime, VideoFrame};
 
         let transport = UsbTransport::bind_port(0).unwrap();
         let port = transport.port();

@@ -1,6 +1,6 @@
 use std::ffi::c_char;
 
-use tether_openxr_abi::{
+use openloop_openxr_abi::{
     XR_MAX_RESULT_STRING_SIZE, XR_MAX_STRUCTURE_NAME_SIZE, XrInstance, XrResult, XrStructureType,
 };
 

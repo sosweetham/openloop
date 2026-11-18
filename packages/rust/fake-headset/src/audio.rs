@@ -5,8 +5,8 @@
 
 use std::collections::HashMap;
 
+use openloop_protocol::{AudioFormat, AudioPacket, ClientTime};
 use serde::Serialize;
-use tether_protocol::{AudioFormat, AudioPacket, ClientTime};
 
 use crate::report::{Finding, Stats};
 
@@ -388,7 +388,7 @@ impl AudioCheck {
 
 #[cfg(test)]
 mod tests {
-    use tether_protocol::AudioHeader;
+    use openloop_protocol::AudioHeader;
 
     use super::*;
     use crate::report::Severity;

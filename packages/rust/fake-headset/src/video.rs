@@ -2,8 +2,8 @@
 //! keyframe, frame indices that only rise, display times close ahead of arrival on the headset
 //! clock, and Annex-B access units whose keyframe flag matches their NAL units.
 
+use openloop_protocol::{ClientTime, PROTOCOL_VERSION, ServerHello, VideoFrame};
 use serde::Serialize;
-use tether_protocol::{ClientTime, PROTOCOL_VERSION, ServerHello, VideoFrame};
 
 use crate::report::{Finding, Stats};
 
@@ -36,7 +36,7 @@ impl Codec {
         }
     }
 
-    /// VPS, SPS, PPS or SPS, PPS. Tether repeats them on every keyframe so a client can join or
+    /// VPS, SPS, PPS or SPS, PPS. OpenLoop repeats them on every keyframe so a client can join or
     /// recover at any keyframe.
     fn parameter_sets(self) -> &'static [u8] {
         match self {
@@ -335,7 +335,7 @@ impl VideoCheck {
 mod tests {
     use super::*;
 
-    /// Access units shaped like VideoToolbox's HEVC output after Tether's Annex-B conversion.
+    /// Access units shaped like VideoToolbox's HEVC output after OpenLoop's Annex-B conversion.
     fn hevc_keyframe() -> Vec<u8> {
         let mut au = Vec::new();
         for (header, body) in [

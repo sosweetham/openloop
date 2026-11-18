@@ -1,4 +1,4 @@
-//! The wire protocol between `tetherd` and a headset client, shared by both ends.
+//! The wire protocol between `openloopd` and a headset client, shared by both ends.
 //! Messages are transport-agnostic: a stream link frames them with [`StreamDecoder`]; a datagram
 //! link would carry one encoded message per datagram. See `docs/ARCHITECTURE.md` § Transports.
 //!

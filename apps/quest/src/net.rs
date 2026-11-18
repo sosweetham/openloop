@@ -1,4 +1,4 @@
-//! The link to `tetherd`. Over USB the Mac is reachable on loopback through `adb reverse`;
+//! The link to `openloopd`. Over USB the Mac is reachable on loopback through `adb reverse`;
 //! the client keeps retrying, so launch order does not matter. Audio goes from here straight
 //! into the playout's ring, never through the main thread's once-per-frame drain.
 
@@ -9,8 +9,8 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-use tether_playout::PacketWriter;
-use tether_protocol::{
+use openloop_playout::PacketWriter;
+use openloop_protocol::{
     AudioPacketRef, ClientHello, ClientTime, DeviceProfile, Message, PROTOCOL_VERSION,
     StreamDecoder, USB_PORT, decode, encode_framed,
 };
@@ -45,7 +45,7 @@ impl Net {
         let (tx, events) = mpsc::channel();
         let shared = writer.clone();
         thread::Builder::new()
-            .name("tether-net".into())
+            .name("openloop-net".into())
             .spawn(move || {
                 let mut audio = AudioFeed {
                     packets,

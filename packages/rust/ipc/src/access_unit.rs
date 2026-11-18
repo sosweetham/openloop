@@ -1,4 +1,4 @@
-//! The ring that carries encoded video from the app to `tetherd` while the app still encodes
+//! The ring that carries encoded video from the app to `openloopd` while the app still encodes
 //! (docs/ROADMAP.md § R2 stages, S1 and S2).
 
 use std::cell::UnsafeCell;
@@ -8,7 +8,7 @@ use crate::pod::{Line, WordCell};
 use crate::records::AccessUnit;
 use crate::ring::PushError;
 
-/// Encoded video access units, app → `tetherd`, in `SLOTS` fixed slots of `SLOT_BYTES`. An
+/// Encoded video access units, app → `openloopd`, in `SLOTS` fixed slots of `SLOT_BYTES`. An
 /// access unit takes as many consecutive slots as its bytes need (keyframes are several times a
 /// delta frame), wrapping from the last slot to the first. Single producer, single consumer;
 /// neither side ever waits.

@@ -1,12 +1,12 @@
 [package]
-name = "tether-runtime"
+name = "openloop-runtime"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish.workspace = true
 
 [lib]
-name = "tether_runtime"
+name = "openloop_runtime"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
@@ -14,10 +14,10 @@ glam = "0.34"
 objc2 = "0.6"
 objc2-foundation = "0.3"
 objc2-metal = { version = "0.3", features = ["objc2-io-surface"] }
-tether-ipc = { path = "../ipc" }
-tether-openxr-abi.workspace = true
-tether-protocol = { path = "../protocol" }
-tether-stream = { path = "../stream" }
+openloop-ipc = { path = "../ipc" }
+openloop-openxr-abi.workspace = true
+openloop-protocol = { path = "../protocol" }
+openloop-stream = { path = "../stream" }
 
 [lints]
 workspace = true

@@ -6,10 +6,10 @@ files (`CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, etc.) are symlinks to it.
 
 ## Project
 
-**Tether** — a native macOS OpenXR runtime that uses a Meta Quest 3 as its display
+**OpenLoop** — a native macOS OpenXR runtime that uses a Meta Quest 3 as its display
 and tracking hardware, over USB-C (Wi-Fi is planned). Any OpenXR app on the Mac (Metal via
 `XR_KHR_metal_enable`) runs in the headset as if the headset were plugged into a PC.
-Tether is the baseline every later Mac VR app, game or experience is built on; it
+OpenLoop is the baseline every later Mac VR app, game or experience is built on; it
 contains no game or app logic of its own.
 
 ## Architecture
@@ -23,26 +23,26 @@ the Quest client; Metal Shading Language for shaders; Swift only for the menu-ba
 app, never on a real-time path. Khronos's OpenXR SDK is a pinned submodule under
 `third_party/`, built by `scripts/openxr-sdk.sh` into `build/`.
 
-**The one Objective-C file** is `packages/rust/ipc/objc/TetherIPC.m`: the NSXPC
-`@protocol` between the runtime and `tetherd`, and a C function returning it, compiled
+**The one Objective-C file** is `packages/rust/ipc/objc/OpenLoopIPC.m`: the NSXPC
+`@protocol` between the runtime and `openloopd`, and a C function returning it, compiled
 by that crate's `build.rs`. `NSXPCInterface` accepts only protocol metadata emitted by
 clang. The file declares and never implements; every method lives in Rust. No other
 Objective-C enters the tree.
 
 | Path                            | Crate / artifact      | What                                           |
 | ------------------------------- | --------------------- | ---------------------------------------------- |
-| `packages/rust/openxr-abi`      | `tether-openxr-abi`   | OpenXR C types, generated from headers         |
-| `packages/rust/openxr-gen`      | `tether-openxr-gen`   | Generates the runtime's dispatch table         |
-| `packages/rust/runtime`         | `libtether_runtime`   | The OpenXR runtime the loader loads            |
-| `packages/rust/ipc`             | `tether-ipc`          | Runtime ↔ `tetherd`: NSXPC and shared memory   |
-| `packages/rust/protocol`        | `tether-protocol`     | Wire protocol, shared with the Quest client    |
-| `packages/rust/stream`          | `tether-stream`       | Link, clock sync, poses, compositor, encoder   |
-| `packages/rust/audiotap`        | `tether-audiotap`     | Core Audio process-tap capture for `tetherd`   |
-| `packages/rust/playout`         | `tether-playout`      | The headset's audio playout, host-testable     |
-| `packages/rust/fake-headset`    | `tether-fake-headset` | Scripted headset for tests                     |
-| `packages/rust/e2e`             | `tether-e2e`          | The end-to-end check behind `scripts/e2e.sh`   |
-| `apps/tetherd`                  | `tetherd`             | The per-user agent that owns the headset       |
-| `apps/quest`                    | `tether-quest`        | The Quest client                               |
+| `packages/rust/openxr-abi`      | `openloop-openxr-abi`   | OpenXR C types, generated from headers         |
+| `packages/rust/openxr-gen`      | `openloop-openxr-gen`   | Generates the runtime's dispatch table         |
+| `packages/rust/runtime`         | `libopenloop_runtime`   | The OpenXR runtime the loader loads            |
+| `packages/rust/ipc`             | `openloop-ipc`          | Runtime ↔ `openloopd`: NSXPC and shared memory   |
+| `packages/rust/protocol`        | `openloop-protocol`     | Wire protocol, shared with the Quest client    |
+| `packages/rust/stream`          | `openloop-stream`       | Link, clock sync, poses, compositor, encoder   |
+| `packages/rust/audiotap`        | `openloop-audiotap`     | Core Audio process-tap capture for `openloopd`   |
+| `packages/rust/playout`         | `openloop-playout`      | The headset's audio playout, host-testable     |
+| `packages/rust/fake-headset`    | `openloop-fake-headset` | Scripted headset for tests                     |
+| `packages/rust/e2e`             | `openloop-e2e`          | The end-to-end check behind `scripts/e2e.sh`   |
+| `apps/openloopd`                  | `openloopd`             | The per-user agent that owns the headset       |
+| `apps/quest`                    | `openloop-quest`        | The Quest client                               |
 | `third_party/OpenXR-SDK-Source` | —                     | Khronos loader, headers, `hello_xr`            |
 
 ## Toolchain (required)

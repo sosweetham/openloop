@@ -1,5 +1,5 @@
 //! The shared memory of one session: its versioned layout, and the mapping both processes hold
-//! (docs/ARCHITECTURE.md § Runtime ↔ tetherd).
+//! (docs/ARCHITECTURE.md § Runtime ↔ openloopd).
 
 use std::error::Error;
 use std::fmt;
@@ -28,7 +28,7 @@ pub const AU_SLOT_BYTES: usize = 32 * 1024;
 pub type AccessUnits = AccessUnitRing<AU_SLOTS, AU_SLOT_BYTES>;
 pub type Events = SpscRing<Event, 64>;
 
-/// Written by `tetherd` before the region is shared, and never again.
+/// Written by `openloopd` before the region is shared, and never again.
 #[repr(C)]
 struct Header {
     magic: AtomicU64,
@@ -61,27 +61,27 @@ impl Header {
 #[repr(C)]
 pub struct SessionLayout {
     header: Line<Header>,
-    /// `tetherd`, every 100 ms: a stale beat with an interrupted connection means it is gone.
+    /// `openloopd`, every 100 ms: a stale beat with an interrupted connection means it is gone.
     heartbeat_mac_ns: Line<AtomicI64>,
-    /// `tetherd`.
+    /// `openloopd`.
     pub headset: Snapshots<HeadsetInfo, 4>,
-    /// `tetherd`. The slots double as the last 16 samples.
+    /// `openloopd`. The slots double as the last 16 samples.
     pub tracking: Snapshots<TrackingSample, 16>,
-    /// `tetherd`.
+    /// `openloopd`.
     pub clock: Snapshots<ClockMapping, 4>,
-    /// `tetherd` (R2 S4).
+    /// `openloopd` (R2 S4).
     pub timing: Snapshots<FrameTiming, 4>,
-    /// `tetherd`.
+    /// `openloopd`.
     pub state: Snapshots<SessionState, 4>,
-    /// `tetherd` produces, the app consumes.
+    /// `openloopd` produces, the app consumes.
     pub to_app: Events,
-    /// `tetherd` rings it after publishing timing or pushing to `to_app`.
+    /// `openloopd` rings it after publishing timing or pushing to `to_app`.
     pub app_bell: Doorbell,
-    /// The app produces, `tetherd` consumes.
-    pub to_tetherd: Events,
-    /// The app rings it after pushing to `to_tetherd` or `access_units`.
-    pub tetherd_bell: Doorbell,
-    /// The app produces, `tetherd` consumes (R2 S1 and S2).
+    /// The app produces, `openloopd` consumes.
+    pub to_openloopd: Events,
+    /// The app rings it after pushing to `to_openloopd` or `access_units`.
+    pub openloopd_bell: Doorbell,
+    /// The app produces, `openloopd` consumes (R2 S1 and S2).
     pub access_units: AccessUnits,
 }
 
@@ -98,8 +98,8 @@ pub const LAYOUT_FINGERPRINT: u64 = fnv1a(&[
     offset_of!(SessionLayout, state) as u64,
     offset_of!(SessionLayout, to_app) as u64,
     offset_of!(SessionLayout, app_bell) as u64,
-    offset_of!(SessionLayout, to_tetherd) as u64,
-    offset_of!(SessionLayout, tetherd_bell) as u64,
+    offset_of!(SessionLayout, to_openloopd) as u64,
+    offset_of!(SessionLayout, openloopd_bell) as u64,
     offset_of!(SessionLayout, access_units) as u64,
     size_of::<HeadsetInfo>() as u64,
     size_of::<TrackingSample>() as u64,
@@ -137,11 +137,11 @@ impl SessionLayout {
     }
 }
 
-/// What `tetherd` stamped into a region's header.
+/// What `openloopd` stamped into a region's header.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RegionInfo {
     pub session: u64,
-    /// Distinguishes `tetherd` launches, so a runtime can tell a restarted `tetherd` apart.
+    /// Distinguishes `openloopd` launches, so a runtime can tell a restarted `openloopd` apart.
     pub boot_id: u64,
     pub created_mac_ns: i64,
 }
@@ -191,7 +191,7 @@ pub struct SessionRegion {
 }
 
 impl SessionRegion {
-    /// `tetherd`: a fresh region for a new session.
+    /// `openloopd`: a fresh region for a new session.
     pub fn create(session: u64, boot_id: u64, now_mac_ns: i64) -> io::Result<SessionRegion> {
         let region = SessionRegion {
             memory: SharedMemory::new(size_of::<SessionLayout>())?,
@@ -200,7 +200,7 @@ impl SessionRegion {
         Ok(region)
     }
 
-    /// The runtime: maps the region `tetherd` sent, and refuses one this build cannot read.
+    /// The runtime: maps the region `openloopd` sent, and refuses one this build cannot read.
     pub fn map(object: &XpcObject) -> Result<SessionRegion, RegionError> {
         let memory = SharedMemory::map(object)?;
         let needed = size_of::<SessionLayout>();
@@ -434,14 +434,14 @@ mod tests {
         };
         created.tracking.publish(&mut publisher, &sample);
         assert_eq!(mapped.tracking.latest().unwrap().value, sample);
-        let mut producer = mapped.to_tetherd.producer();
+        let mut producer = mapped.to_openloopd.producer();
         mapped
-            .to_tetherd
+            .to_openloopd
             .push(&mut producer, &Message::KeyframeRequest.into())
             .unwrap();
         let event = created
-            .to_tetherd
-            .pop(&mut created.to_tetherd.consumer())
+            .to_openloopd
+            .pop(&mut created.to_openloopd.consumer())
             .unwrap();
         assert_eq!(event.unwrap().decode(), Ok(Message::KeyframeRequest));
     }

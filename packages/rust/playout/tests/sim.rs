@@ -11,8 +11,8 @@
 use std::collections::BTreeSet;
 use std::f64::consts::TAU;
 
-use tether_playout::{ClientTime, ClockMode, Config, OutputTiming, Snapshot, Timestamp, Tuning};
-use tether_protocol::{AudioFormat, AudioHeader};
+use openloop_playout::{ClientTime, ClockMode, Config, OutputTiming, Snapshot, Timestamp, Tuning};
+use openloop_protocol::{AudioFormat, AudioHeader};
 
 const RATE: f64 = 48_000.0;
 const PERIOD: f64 = 32_768.0;
@@ -321,7 +321,7 @@ fn run(s: &Scenario) -> Report {
             .sum()
     };
 
-    let (mut writer, playout) = tether_playout::new(Config {
+    let (mut writer, playout) = openloop_playout::new(Config {
         ring_slots: s.ring_slots,
         tuning: s.tuning,
     });

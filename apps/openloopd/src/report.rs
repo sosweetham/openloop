@@ -1,5 +1,5 @@
 //! One JSON report per app session, written when the session goes, to
-//! `~/Library/Logs/Tether/sessions/` (docs/ROADMAP.md § Quality gates).
+//! `~/Library/Logs/OpenLoop/sessions/` (docs/ROADMAP.md § Quality gates).
 
 use std::fs;
 use std::io;
@@ -8,9 +8,9 @@ use std::time::Instant;
 
 use std::sync::atomic::Ordering;
 
-use tether_ipc::records::AccessUnit;
-use tether_stream::PIPELINE_LATENCY_NS;
-use tether_stream::stats::Histogram;
+use openloop_ipc::records::AccessUnit;
+use openloop_stream::PIPELINE_LATENCY_NS;
+use openloop_stream::stats::Histogram;
 
 use crate::audio::Tally;
 use crate::log::{file_stamp, unix_time};
@@ -36,7 +36,7 @@ pub struct SessionReport {
     background: u64,
     not_running: u64,
     keyframes_requested: u64,
-    /// Frame indices the app's stream skipped: frames lost before they reached `tetherd`.
+    /// Frame indices the app's stream skipped: frames lost before they reached `openloopd`.
     index_gaps: u64,
     last_index: Option<u64>,
     /// From each frame's start (its `xrWaitFrame` deadline) to its encoded access unit.
@@ -154,7 +154,7 @@ impl SessionReport {
                     "not_running": self.not_running,
                 },
                 "keyframes_requested_from_app": self.keyframes_requested,
-                "lost_before_tetherd": self.index_gaps,
+                "lost_before_openloopd": self.index_gaps,
                 "frame_start_to_encoded_ms": {
                     "p50": self.start_to_encoded.quantile_ms(0.5),
                     "p95": self.start_to_encoded.quantile_ms(0.95),
