@@ -42,16 +42,24 @@ pub const SERVICE_VAR: &str = "TETHER_SERVICE";
 /// `tetherd`'s code-signing identifier, which the runtime pins.
 pub const TETHERD_IDENTIFIER: &str = "dev.tether.tetherd";
 
-/// The Apple Development team whose certificate signs `tetherd`.
-pub const TEAM_ID: &str = "7F2T2WK6DR";
+/// The Apple Development team whose certificate signs `tetherd`: `TETHER_TEAM_ID` at build time
+/// (build.rs, set by scripts/signing.sh), empty when the build had none.
+pub const TEAM_ID: &str = env!("TETHER_TEAM_ID");
 
 /// What `tetherd`'s signature must satisfy before the runtime exchanges anything with it
-/// (csreq(1), TN3127): any process of the user's can register a Mach service name, but only
-/// Tether's team can sign this identifier.
-pub const TETHERD_REQUIREMENT: &str = concat!(
-    "identifier \"dev.tether.tetherd\" and anchor apple generic",
-    " and certificate leaf[subject.OU] = \"7F2T2WK6DR\""
-);
+/// (csreq(1), TN3127): any process of the user's can register a Mach service name, but only the
+/// team that built Tether can sign this identifier. A build without a team checks the identifier
+/// alone.
+pub fn tetherd_requirement() -> String {
+    if TEAM_ID.is_empty() {
+        format!("identifier \"{TETHERD_IDENTIFIER}\"")
+    } else {
+        format!(
+            "identifier \"{TETHERD_IDENTIFIER}\" and anchor apple generic \
+             and certificate leaf[subject.OU] = \"{TEAM_ID}\""
+        )
+    }
+}
 
 /// The Mach service the runtime connects to: [`SERVICE_VAR`] if set and non-empty, else
 /// [`SERVICE_NAME`].
@@ -66,7 +74,8 @@ pub fn service_name() -> String {
 mod tests {
     #[test]
     fn the_requirement_names_the_identifier_and_team() {
-        assert!(super::TETHERD_REQUIREMENT.contains(super::TETHERD_IDENTIFIER));
-        assert!(super::TETHERD_REQUIREMENT.contains(super::TEAM_ID));
+        let requirement = super::tetherd_requirement();
+        assert!(requirement.contains(super::TETHERD_IDENTIFIER));
+        assert!(requirement.contains(super::TEAM_ID));
     }
 }

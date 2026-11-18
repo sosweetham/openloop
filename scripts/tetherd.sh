@@ -16,7 +16,7 @@
 #                                           capture a 3 s test tone through the installed tetherd
 # TETHER_USB_PORT, when set at install, moves its headset listener off 47800 (and adb is then
 # left alone); TETHER_AUDIO (tap, synthetic or off) sets where the app's sound comes from.
-# TETHER_SIGN_IDENTITY overrides the signing certificate.
+# TETHER_SIGN_IDENTITY and TETHER_TEAM_ID choose the signing certificate and its team (scripts/signing.sh).
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -24,9 +24,8 @@ export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Develope
 
 label=dev.tether.tetherd
 domain="gui/$(id -u)"
-identity="${TETHER_SIGN_IDENTITY:-Apple Development: sohamjaiswal10@gmail.com (69Y69F7X3F)}"
-# tether_ipc::TETHERD_REQUIREMENT: what the runtime checks before it talks to tetherd.
-requirement='identifier "dev.tether.tetherd" and anchor apple generic and certificate leaf[subject.OU] = "7F2T2WK6DR"'
+# shellcheck source=signing.sh
+. "$root/scripts/signing.sh"
 support="$HOME/Library/Application Support/Tether"
 binary="$support/tetherd"
 stamp="$support/tetherd.sha256"
@@ -41,9 +40,12 @@ say() { echo "tetherd.sh: $*" >&2; }
 # what the System Audio Recording permission was researched under (packages/rust/audiotap).
 sign() {
   local from="$1" to="$2" tmp="$2.signing"
+  tether_signing || exit 1
+  # tether_ipc::tetherd_requirement(): what the runtime checks before it talks to tetherd.
+  local requirement="identifier \"$label\" and anchor apple generic and certificate leaf[subject.OU] = \"$TETHER_TEAM_ID\""
   mkdir -p "$(dirname "$to")"
   cp "$from" "$tmp"
-  codesign --force --sign "$identity" --identifier "$label" --options runtime \
+  codesign --force --sign "$TETHER_SIGN_IDENTITY" --identifier "$label" --options runtime \
     --entitlements "$root/apps/tetherd/tetherd.entitlements" --timestamp=none "$tmp" 2>/dev/null
   codesign --verify --strict -R="$requirement" "$tmp"
   mv -f "$tmp" "$to"
@@ -55,6 +57,7 @@ build() {
     profile=release
     out_dir=release
   fi
+  tether_signing || exit 1
   cargo build --manifest-path "$root/Cargo.toml" -p tetherd --profile "$profile" >&2
   local target
   target="$(cd "${CARGO_TARGET_DIR:-$root/target}" && pwd)"

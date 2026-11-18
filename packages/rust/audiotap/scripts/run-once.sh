@@ -44,8 +44,11 @@ bin="$out_root/tether-audiotap"
 marker="$out_root/blocked"
 label="dev.tether.audiotap.$mode"
 domain="gui/$(id -u)"
-identity="${TETHER_SIGN_IDENTITY:-Apple Development: sohamjaiswal10@gmail.com (69Y69F7X3F)}"
-team="${TETHER_SIGN_TEAM:-7F2T2WK6DR}"
+# shellcheck source=../../../../scripts/signing.sh
+. "$root/scripts/signing.sh"
+tether_signing || exit 1
+identity="$TETHER_SIGN_IDENTITY"
+team="$TETHER_TEAM_ID"
 
 # The Command Line Tools can ship an SDK newer than their own linker understands.
 export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"

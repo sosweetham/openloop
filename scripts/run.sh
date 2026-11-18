@@ -19,6 +19,9 @@ if [[ "${1:-}" == "--release" ]]; then
 fi
 
 export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
+# shellcheck source=signing.sh
+. "$root/scripts/signing.sh"
+tether_team
 cargo build --manifest-path "$root/Cargo.toml" -p tether-runtime --profile "$profile" >&2
 target="$(cd "${CARGO_TARGET_DIR:-$root/target}" && pwd)"
 

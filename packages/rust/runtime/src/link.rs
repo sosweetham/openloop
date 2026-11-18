@@ -200,7 +200,7 @@ impl Tetherd {
         let health = Arc::new(Health::default());
         let (interrupted, invalidated) = (health.clone(), health.clone());
         let options = ConnectOptions {
-            code_signing_requirement: Some(tether_ipc::TETHERD_REQUIREMENT.to_owned()),
+            code_signing_requirement: Some(tether_ipc::tetherd_requirement()),
             timeout: CALL_TIMEOUT,
             on_interrupted: Some(Box::new(move || {
                 interrupted.losses.fetch_add(1, Ordering::AcqRel);

@@ -36,6 +36,9 @@ if [[ ! -x "$hello_xr" ]]; then
   "$root/scripts/openxr-sdk.sh" >&2
 fi
 
+# shellcheck source=signing.sh
+. "$root/scripts/signing.sh"
+tether_team
 cargo build --manifest-path "$root/Cargo.toml" --profile "$profile" \
   -p tether-runtime -p tether-fake-headset -p tether-e2e -p tetherd >&2
 
