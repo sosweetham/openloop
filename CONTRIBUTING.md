@@ -68,7 +68,7 @@ The rules that go with these checks:
 
 - **Streaming work is done when its session report passes the quality gates**, not when it
   looks right.
-- **Each R2 stage ships a working build**: `cargo test` passes, `scripts/e2e.sh` is green, and
+- **Every change ships a working build**: `cargo test` passes, `scripts/e2e.sh` is green, and
   `hello_xr` and `examples/godot/hello` stream in the headset.
 - **Automated tests never touch real hardware or the user's setup.** `cargo test` and
   `scripts/e2e.sh` never touch a headset, adb, port 47800, the installed openloopd, Core Audio or

@@ -66,8 +66,9 @@ Not to be confused with an open-loop control system: this loop listens to your e
 
 ## Status
 
-Pre-release. Build from source. The milestones are in [`docs/ROADMAP.md`](docs/ROADMAP.md),
-and the design is in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+Pre-release. Build from source. Planned work is tracked in the repository's
+[issues](https://github.com/sosweetham/openloop/issues), and the design is in
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ### What works today
 
@@ -104,13 +105,13 @@ and the design is in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ### Not yet
 
-- Wi-Fi. USB-C is the only link (Wi-Fi is milestone R5).
+- Wi-Fi. USB-C is the only link.
 - Frame pacing locked to the headset's display. `xrWaitFrame` paces a local timer at the
-  headset's refresh rate and predicts a fixed 40 ms latency (R2 stage S4).
-- Compositing and encoding inside openloopd: today they run in the app's process (stage S3).
-  There are no real-time threads yet, and restarting openloopd ends running sessions (stage S5).
+  headset's refresh rate and predicts a fixed 40 ms latency.
+- Compositing and encoding inside openloopd: today they run in the app's process. There are
+  no real-time threads yet, and restarting openloopd ends running sessions.
 - A menu-bar app, an in-headset launcher, pairing, and registering OpenLoop as the system's
-  OpenXR runtime (R7). Today apps are started through `scripts/run.sh`.
+  OpenXR runtime. Today apps are started through `scripts/run.sh`.
 - Measured motion-to-photon latency, hand tracking, Vulkan apps (through MoltenVK), the
   Mac-window headset simulator and the OpenXR conformance test suite.
 
@@ -133,27 +134,37 @@ been tested on one setup:
 | Other Apple silicon Macs; macOS 14.4 or later | Not tested |
 | Intel Macs | Not tested |
 | Quest 2, Quest Pro and Quest 3S | Declared by the Quest app; not tested |
-| Wi-Fi | Planned (R5); not started |
+| Wi-Fi | Planned; not started |
 | Hosts on Linux or Windows | Planned; not started |
 | A Linux client for Steam Frame; an Apple Vision Pro client | Planned; not started |
 
-## Help wanted: testing on other hardware
+## Help wanted
 
-Reports from any other setup are the most useful contribution right now, whether things work or
-not:
+OpenLoop has run on one Mac and one Quest 3, so help from anyone with other hardware or another
+platform is the most useful contribution right now.
+
+**Testing.** Reports are welcome whether things work or not:
 
 - **Other Apple silicon Macs**: M1, M2, M4 and later; base, Pro, Max and Ultra chips. The size
   of the encoded stream comes from an encoder speed measured on the M3 Max, so results from
   other media engines matter most.
-- **Other macOS versions**, from 14.4 on. Only macOS 27.0.1 has been tried.
+- **Other macOS versions**, from 14.4 on, and **Intel Macs**. Only macOS 27.0.1 on Apple silicon
+  has been tried.
 - **Quest 2, Quest Pro and Quest 3S.** The Quest app declares support for them, but it has never
   run on them.
 - **Other OpenXR apps and engines** that render with Metal on macOS.
-- **Intel Macs** have not been tried.
+
+**Porting.**
+
+- **A Linux or Windows host**: the runtime and the service for that system, with its graphics
+  bindings (for example Vulkan or Direct3D), IPC, video encoder, audio capture and service
+  manager, sharing the wire protocol and the headset clients.
+- **Clients for other headsets**: other Android OpenXR headsets, a Linux client for Valve's
+  Steam Frame, and an Apple Vision Pro client.
 
 [`CONTRIBUTING.md`](CONTRIBUTING.md#reporting-hardware-test-results) says what to run and what
-to include in the report. Other headsets need a new client first (see
-[Direction](#direction-beyond-the-mac-and-the-quest-3)).
+to include in a hardware report. For a port, please open an issue first so the design can be
+agreed before the code (see [Direction](#direction-beyond-the-mac-and-the-quest-3)).
 
 ## Requirements
 
@@ -329,7 +340,7 @@ openloopd restarted without it, the next time `scripts/run.sh` runs.
 | `OPENLOOP_RENDER_SCALE` | the app's process | Eye render size relative to the headset's, from 0.5 to 2.0; default 1.4 |
 | `OPENLOOP_AUDIO` | `scripts/openloopd.sh install` and `ensure` (so also `scripts/run.sh`); keep it set in your environment | `tap` (default), `synthetic` (a 440 Hz tone for every app, for tests) or `off` |
 | `OPENLOOP_USB_PORT` | `scripts/openloopd.sh install` and `ensure` (keep it set, as for `OPENLOOP_AUDIO`), or the app with `OPENLOOP_INPROCESS=1` | Moves the headset listener off port 47800 (`0`: any free port) and leaves adb alone; for tests |
-| `OPENLOOP_INPROCESS=1` | `scripts/run.sh` | Runs the headset link inside the app, as before openloopd. Stop openloopd first (`scripts/openloopd.sh stop`). Kept for comparisons until stage S5 |
+| `OPENLOOP_INPROCESS=1` | `scripts/run.sh` | Runs the headset link inside the app, as before openloopd. Stop openloopd first (`scripts/openloopd.sh stop`). Kept for comparisons |
 | `OPENLOOP_SERVICE` | the app's process | Connects the runtime to another openloopd Mach service; used by tests |
 | `ANDROID_HOME`, `ANDROID_NDK_HOME` | Quest scripts, openloopd | Android SDK and NDK; default `~/Library/Android/sdk` and its newest NDK |
 | `DEVELOPER_DIR` | build scripts | The Xcode to build with; default `/Applications/Xcode.app/Contents/Developer` |
@@ -403,7 +414,7 @@ flowchart LR
 
 - **The app's process.** The Khronos loader finds `libopenloop_runtime.dylib` through the runtime
   manifest. The runtime implements the OpenXR API in the app's process. Today it also composites
-  each frame and encodes it with VideoToolbox; stage S3 of milestone R2 moves both into openloopd.
+  each frame and encodes it with VideoToolbox; a planned change moves both into openloopd.
 - **openloopd** owns the headset, so an app never does. The runtime reaches it over NSXPC for
   setup calls and through shared memory for everything that happens every frame. openloopd runs
   the USB link (one TCP stream through `adb reverse`), maps the Mac's clock to the headset's,
@@ -436,30 +447,6 @@ openloopd contract, time, audio, transports, headsets and video quality.
 | `third_party/OpenXR-SDK-Source` | The Khronos OpenXR SDK, a pinned git submodule |
 | `docs` | Architecture and roadmap |
 
-## Roadmap
-
-From [`docs/ROADMAP.md`](docs/ROADMAP.md):
-
-| | Milestone | Status |
-| --- | --- | --- |
-| R0 | Workspace; Khronos loader and `hello_xr` built; the runtime loads | Done |
-| R1 | Simulated headset: full API in-process, both eyes in a Mac window, keyboard and mouse input; the OpenXR conformance tests | API done in-process; the Mac-window simulator and the conformance tests are not built |
-| R2 | openloopd out of process: IPC, shared GPU textures, the app's sound in the headset | Stage S2 done; S3 next |
-| R3 | Pure-Rust Quest app over USB | Done, except that round-trip latency is not reported |
-| R4 | Streaming: VideoToolbox to MediaCodec, pose-tagged frames, pacing, recentring; Godot in the headset | Godot streams over USB-C; pacing waits for R2 stage S4 |
-| R5 | Wi-Fi: discovery, error correction and retransmission, adaptive bitrate | Not started |
-| R6 | Tuning to the quality gates; full controller input and haptics | Not started |
-| R7 | Menu-bar app, launch agent packaging, in-headset launcher, pairing, system runtime registration | Not started |
-
-openloopd's remaining stages (R2):
-
-| Stage | Delivers |
-| --- | --- |
-| S3 | The GPU path moves into openloopd: shared textures and events, composition and encoding in openloopd; the runtime drops VideoToolbox |
-| S4 | `xrWaitFrame` locked to the headset's vsync, shifted by the measured latency |
-| S5 | Hardening: app crashes and openloopd restarts, several apps, real-time threads; the in-process path removed |
-| S6 | Packaging with R7: the menu-bar app registers the agent; a per-user active runtime |
-
 ## Direction: beyond the Mac and the Quest 3
 
 OpenLoop is meant to become a cross-platform OpenXR framework: runtimes for several host systems
@@ -478,7 +465,7 @@ started, and none has a date.
   and launchd. A host for another system, such as Linux or Windows, would replace those with
   that platform's graphics bindings (for example Vulkan), IPC, encoder, audio capture and service
   manager. It would share the wire protocol and the clients.
-- **Wi-Fi** for every client (R5).
+- **Wi-Fi** for every client.
 
 If you would like to work on a host or a client, please open an issue first so the design can
 be agreed before the code.
@@ -492,8 +479,8 @@ to human contributors too. AI is never attributed in commits: the human author o
 and answers for every line in it.
 
 Contributions are welcome, written by hand or with AI tools. Right now the most useful help is
-testing on hardware we do not have (see
-[Help wanted](#help-wanted-testing-on-other-hardware)). [`CONTRIBUTING.md`](CONTRIBUTING.md) has
+testing on hardware we do not have and porting to other platforms (see
+[Help wanted](#help-wanted)). [`CONTRIBUTING.md`](CONTRIBUTING.md) has
 the rules, the checks to run, the commit policy and what to put in a hardware report.
 
 ## Licence
