@@ -58,18 +58,11 @@ headset lives in its client app and in the device profile the client sends when 
 
 ## Why "OpenLoop"
 
-The project began as Tether, named for the USB cable. It is going to run over Wi-Fi too, and it is
-open source, so it became OpenLoop.
+It's an oxymoron, and that's the fun of it: OpenLoop closes the loop between you and the
+experience, yet you can step out whenever you like, and the source is open too. (It began as
+Tether, after the USB cable, but Wi-Fi is on the way.)
 
-The name is also a small oxymoron, on purpose. OpenLoop closes a loop between a person and an
-experience: what you do moves the world, and what the world shows changes what you do next. But
-it is still VR, not reality, and you can take the headset off at any moment, so the loop never
-quite closes. It stays open, like the source.
-
-It is not to be confused with an open-loop control system, which acts without measuring the
-result. Rest assured, OpenLoop listens, and listens closely: the headset sends its head and
-controller poses many times a second, the two devices' clocks are kept in sync, and every frame
-the app renders is posed from that tracking, predicted to the moment it reaches your eyes.
+Not to be confused with an open-loop control system: this loop listens to your every move.
 
 ## Status
 
