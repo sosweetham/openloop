@@ -212,7 +212,9 @@ keytool -genkeypair -keystore ~/.android/debug.keystore -storepass android -keyp
 ### 2. Build
 
 ```sh
-git submodule update --init   # Khronos OpenXR-SDK-Source, pinned
+git clone --recurse-submodules https://github.com/sosweetham/openloop.git
+cd openloop
+git submodule update --init   # Khronos OpenXR-SDK-Source, pinned (if cloned without it)
 ./scripts/openxr-sdk.sh       # Khronos loader and hello_xr, into build/openxr-sdk
 cargo build                   # the runtime and openloopd, into target/debug
 ```
@@ -534,5 +536,4 @@ These names are used only to describe what OpenLoop works with, is planned to wo
 compared with. The full list is in
 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md#5-trademarks).
 
-<!-- Before publishing: replace OWNER with the account that hosts Kenbu's repository. -->
-[kenbu]: https://github.com/OWNER/kenbu
+[kenbu]: https://github.com/sosweetham/kenbu
